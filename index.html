@@ -931,6 +931,41 @@ td.att-cell{text-align:center;padding:6px 4px}
   font-size:11pt;line-height:1;cursor:pointer;padding:0 2px;transition:.15s;
 }
 .att-remove-date:hover{color:#f87171}
+
+/* ── ATT COLUMN BULK BUTTONS ── */
+.att-col-btns{display:flex;gap:3px;justify-content:center;margin-top:4px}
+.att-col-btn{
+  border:none;border-radius:4px;cursor:pointer;font-family:var(--font);font-size:7pt;font-weight:700;
+  padding:2px 5px;line-height:1.4;transition:.12s;
+}
+.att-col-btn.all-p{background:#EDFBF3;color:#1B7A4A;border:1px solid #9FE1CB}
+.att-col-btn.all-p:hover{background:#c6f6e0}
+.att-col-btn.all-a{background:#FFF0F0;color:#C8272C;border:1px solid #F7C1C1}
+.att-col-btn.all-a:hover{background:#fdd}
+.att-col-btn.copy-prev{background:rgba(255,255,255,.1);color:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.2)}
+.att-col-btn.copy-prev:hover{background:rgba(255,255,255,.18)}
+
+/* ── ATT CONTEXT MENU ── */
+#att-ctx-menu{
+  position:fixed;z-index:9999;background:#1A2744;border:1px solid rgba(255,255,255,.18);
+  border-radius:var(--r);box-shadow:0 8px 32px rgba(0,0,0,.5);
+  padding:6px 0;min-width:200px;display:none;
+}
+#att-ctx-menu.open{display:block}
+.ctx-header{padding:6px 14px 4px;font-size:7.5pt;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.35)}
+.ctx-item{
+  display:flex;align-items:center;gap:10px;padding:8px 14px;cursor:pointer;
+  font-size:9pt;color:rgba(255,255,255,.85);transition:.1s;
+}
+.ctx-item:hover{background:rgba(255,255,255,.08)}
+.ctx-item .ctx-badge{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:22px;height:18px;border-radius:3px;font-size:7pt;font-weight:700;
+}
+.ctx-item .ctx-badge.p{background:#EDFBF3;color:#1B7A4A}
+.ctx-item .ctx-badge.a{background:#FFF0F0;color:#C8272C}
+.ctx-item .ctx-badge.na{background:var(--surface);color:var(--muted)}
+.ctx-divider{height:1px;background:rgba(255,255,255,.1);margin:4px 0}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
@@ -2185,10 +2220,14 @@ function buildAttendancePage(pLearners,attDates,nar,pn=4){
     return`${+dy} ${mon[+m]||m} ${y}`;
   }
 
-  const headerCols=dates.map(d=>`
-    <th style="text-align:center;min-width:72px;position:relative;padding-right:20px">
+  const headerCols=dates.map((d,i)=>`
+    <th style="text-align:center;min-width:80px;position:relative;padding-right:20px;padding-bottom:6px">
       <span class="att-date-label">${esc(fmtDate(d))}</span>
       <button class="att-remove-date no-print" title="Remove this date" onclick="removeAttDate('${d}')">×</button>
+      <div class="att-col-btns no-print">
+        <button class="att-col-btn all-p" title="Mark all Present" onclick="bulkSetColumn('${d}','P')">✓ All</button>
+        <button class="att-col-btn all-a" title="Mark all Absent" onclick="bulkSetColumn('${d}','A')">✗ All</button>${i>0?`<button class="att-col-btn copy-prev" title="Copy previous session" onclick="copyPrevSession('${dates[i-1]}','${d}')">⬅</button>`:''}
+      </div>
     </th>`).join('');
 
   const rows=pLearners.map(l=>{
@@ -2197,7 +2236,7 @@ function buildAttendancePage(pLearners,attDates,nar,pn=4){
       const savedAtt=(narratives._att||{})[key];
       const status=savedAtt||(attState[l.id]?.[d])||'';
       const cls=status==='P'?'att-p':status==='A'?'att-a':status==='R'?'att-r':'att-na';
-      return`<td class="att-cell"><span class="${cls}" data-att="${key}" onclick="cycleAtt(this)">${status||'—'}</span></td>`;
+      return`<td class="att-cell"><span class="${cls}" data-att="${key}" onclick="cycleAtt(this)" oncontextmenu="openAttCtx(event,this,'${d}')">${status||'—'}</span></td>`;
     }).join('');
     return`<tr><td>${esc(l.first_name)}</td><td>${esc(l.last_name)}</td><td style="font-family:var(--mono);font-size:8pt">${esc(l.id_number)}</td>${cells}</tr>`;
   }).join('');
@@ -2209,7 +2248,7 @@ function buildAttendancePage(pLearners,attDates,nar,pn=4){
       <div class="sec-accent" style="background:var(--m2)"></div>
       <div>
         <div class="sec-title">Attendance Register</div>
-        <div class="sec-subtitle">Click any cell to cycle: P → A → N/A → R</div>
+        <div class="sec-subtitle">Click any cell to cycle: P → A → N/A → R · Right-click for bulk options</div>
       </div>
     </div>
     ${emptyHint}
@@ -2534,6 +2573,115 @@ function cycleAtt(el){
 function applyAttStyle(el,status){
   el.className='';
   el.classList.add(status==='P'?'att-p':status==='A'?'att-a':status==='R'?'att-r':'att-na');
+}
+
+// ── BULK ATTENDANCE HELPERS ─────────────────────────────────────────────────
+
+function bulkSetColumn(dateKey,status){
+  const pLearners=getProgrammeLearners();
+  if(!pLearners.length){toast('No learners in this programme','warn');return;}
+  const upserts=[];
+  pLearners.forEach(l=>{
+    if(!attState[l.id])attState[l.id]={};
+    attState[l.id][dateKey]=status;
+    // Update DOM pill
+    const el=document.querySelector(`[data-att="${l.id}_${dateKey}"]`);
+    if(el){el.textContent=status;applyAttStyle(el,status);}
+    if(activeProgramme&&!isNaN(+l.id)){
+      upserts.push({
+        tenant_id:TENANT_DB_ID,
+        learner_id:+l.id,
+        programme_id:activeProgramme.id,
+        session_date:dateKey,
+        status,
+      });
+    }
+  });
+  autoSave();
+  // Batch upsert — fire & forget with one toast
+  if(upserts.length&&isOnline){
+    Promise.all(upserts.map(p=>sbUpsert('attendance',p)))
+      .then(()=>toast(`All ${status==='P'?'Present':'Absent'} — ${upserts.length} learner${upserts.length===1?'':'s'} saved`,'success',2500))
+      .catch(e=>{console.warn('Bulk att sync failed:',e.message);toast('Bulk save failed — changes stored locally','warn');});
+  } else {
+    toast(`All marked ${status} (${pLearners.length} learners)`,'success',2500);
+  }
+}
+
+function copyPrevSession(fromDate,toDate){
+  const pLearners=getProgrammeLearners();
+  if(!pLearners.length){toast('No learners in this programme','warn');return;}
+  const upserts=[];
+  pLearners.forEach(l=>{
+    const src=(attState[l.id]?.[fromDate])||'';
+    if(!src)return; // skip blanks
+    if(!attState[l.id])attState[l.id]={};
+    attState[l.id][toDate]=src;
+    const el=document.querySelector(`[data-att="${l.id}_${toDate}"]`);
+    if(el){el.textContent=src;applyAttStyle(el,src);}
+    if(activeProgramme&&!isNaN(+l.id)){
+      upserts.push({
+        tenant_id:TENANT_DB_ID,
+        learner_id:+l.id,
+        programme_id:activeProgramme.id,
+        session_date:toDate,
+        status:src,
+      });
+    }
+  });
+  autoSave();
+  if(!upserts.length){toast('Previous session has no data to copy','warn');return;}
+  if(isOnline){
+    Promise.all(upserts.map(p=>sbUpsert('attendance',p)))
+      .then(()=>toast(`Copied ${upserts.length} attendance record${upserts.length===1?'':'s'} from previous session`,'success',3000))
+      .catch(e=>{console.warn('Copy prev sync failed:',e.message);toast('Copy done locally — sync failed','warn');});
+  } else {
+    toast(`Copied previous session (${upserts.length} learners) — will sync when online`,'success',3000);
+  }
+}
+
+// ── CONTEXT MENU ────────────────────────────────────────────────────────────
+let _ctxDate=null;
+let _ctxDates=[];
+
+function openAttCtx(e,el,dateKey){
+  e.preventDefault();
+  _ctxDate=dateKey;
+  _ctxDates=getAttDates();
+  const idx=_ctxDates.indexOf(dateKey);
+  const menu=document.getElementById('att-ctx-menu');
+  const copyBtn=document.getElementById('att-ctx-copy');
+  const label=document.getElementById('att-ctx-date-label');
+  // Format date nicely for label
+  const parts=dateKey.split('-');
+  const mon=['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  label.textContent=parts.length===3?`${+parts[2]} ${mon[+parts[1]]||parts[1]} ${parts[0]}`:dateKey;
+  // Only show copy-prev if there's a prior column
+  copyBtn.style.display=idx>0?'flex':'none';
+  // Position near cursor
+  const x=Math.min(e.clientX,window.innerWidth-220);
+  const y=Math.min(e.clientY,window.innerHeight-200);
+  menu.style.left=x+'px';
+  menu.style.top=y+'px';
+  menu.classList.add('open');
+  // Close on next click anywhere
+  setTimeout(()=>document.addEventListener('click',closeAttCtx,{once:true}),0);
+}
+
+function closeAttCtx(){
+  document.getElementById('att-ctx-menu').classList.remove('open');
+}
+
+function ctxMarkAll(status){
+  closeAttCtx();
+  if(_ctxDate)bulkSetColumn(_ctxDate,status);
+}
+
+function ctxCopyPrev(){
+  closeAttCtx();
+  if(!_ctxDate)return;
+  const idx=_ctxDates.indexOf(_ctxDate);
+  if(idx>0)copyPrevSession(_ctxDates[idx-1],_ctxDate);
 }
 
 function toggleSurvey(el){
@@ -5178,6 +5326,16 @@ async function runExportWithFilter(){
       <span style="font-size:7.5pt;color:rgba(255,255,255,.35)">Use arrows to browse all learners</span>
     </div>
   </div>
+</div>
+
+<!-- ── ATT CONTEXT MENU ── -->
+<div id="att-ctx-menu">
+  <div class="ctx-header" id="att-ctx-date-label">Session</div>
+  <div class="ctx-item" onclick="ctxMarkAll('P')"><span class="ctx-badge p">P</span> Mark all Present</div>
+  <div class="ctx-item" onclick="ctxMarkAll('A')"><span class="ctx-badge a">A</span> Mark all Absent</div>
+  <div class="ctx-item" onclick="ctxMarkAll('N/A')"><span class="ctx-badge na">N/A</span> Mark all N/A</div>
+  <div class="ctx-divider"></div>
+  <div class="ctx-item" id="att-ctx-copy" onclick="ctxCopyPrev()">⬅ Copy previous session</div>
 </div>
 
 <!-- ── EXPORT FILTER MODAL ── -->
