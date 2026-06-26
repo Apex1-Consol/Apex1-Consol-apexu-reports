@@ -2857,6 +2857,7 @@ function openModal(type,mode,learnerId){
     document.getElementById('modal-title').textContent=src?'Edit Learner':'Add Learner';
     document.getElementById('modal-save-btn').style.display='';
     document.getElementById('modal-save-btn').onclick=saveModal;
+    document.getElementById('modal-save-btn').disabled=false;
     document.getElementById('modal-save-btn').textContent=src?'Save Changes':'Add Learner';
     // Store learner id for saveModal
     document.getElementById('modal-save-btn').dataset.learnerId=learnerId||'';
@@ -2883,6 +2884,7 @@ function openModal(type,mode,learnerId){
 
   document.getElementById('modal-save-btn').style.display='';
   document.getElementById('modal-save-btn').onclick=saveModal;
+  document.getElementById('modal-save-btn').disabled=false;
   document.getElementById('modal-title').textContent=
     (isEdit?'Edit ':'Add ')+( type==='client'?'Client':'Programme');
   document.getElementById('modal-save-btn').textContent=isEdit?'Save Changes':'Add';
