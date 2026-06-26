@@ -594,6 +594,34 @@ td.att-cell{text-align:center;padding:6px 4px}
   .info-card.needs-input span::after{display:none!important}
 }
 
+/* ── PDF rendering pass — mirrors @media print but as a live class ── */
+body.pdf-rendering #topbar,
+body.pdf-rendering #controls,
+body.pdf-rendering #loading-state,
+body.pdf-rendering .preview-actions,
+body.pdf-rendering #save-indicator,
+body.pdf-rendering #toast-stack,
+body.pdf-rendering .no-print,
+body.pdf-rendering .att-toolbar{display:none!important}
+body.pdf-rendering #report-preview{display:block!important;background:#fff!important;padding:0!important}
+body.pdf-rendering .nar-screen{display:none!important}
+body.pdf-rendering .nar-print{display:block!important}
+body.pdf-rendering .exam-screen{display:none!important}
+body.pdf-rendering .exam-print{display:inline!important}
+body.pdf-rendering .result-screen{display:none!important}
+body.pdf-rendering .result-print{display:inline!important}
+body.pdf-rendering .narrative-textarea,
+body.pdf-rendering .field-select,
+body.pdf-rendering .result-select,
+body.pdf-rendering .survey-comment-input,
+body.pdf-rendering .exam-input{display:none!important}
+body.pdf-rendering .survey-check:not(.checked){visibility:hidden!important}
+body.pdf-rendering .mod-dates-input{display:none!important}
+body.pdf-rendering .mod-dates-print{display:block!important}
+body.pdf-rendering .mod-edit-hint{display:none!important}
+body.pdf-rendering .mod-card.needs-input{animation:none!important;border-color:var(--border)!important;box-shadow:none!important}
+body.pdf-rendering .info-card.needs-input span::after{display:none!important}
+
 /* scrollbar */
 ::-webkit-scrollbar{width:6px;height:6px}
 ::-webkit-scrollbar-track{background:rgba(255,255,255,.04)}
@@ -968,6 +996,8 @@ td.att-cell{text-align:center;padding:6px 4px}
 .ctx-divider{height:1px;background:rgba(255,255,255,.1);margin:4px 0}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 <body>
 <div id="app-shell">
@@ -1002,6 +1032,7 @@ td.att-cell{text-align:center;padding:6px 4px}
     <button class="btn btn-ghost" onclick="saveNarratives(true)">💾 Save Draft</button>
     <button class="btn btn-ghost" onclick="openHistoryPanel()">🕓 History<span id="review-pending-badge" class="review-pending-badge">0</span></button>
     <button class="btn btn-ghost" id="export-btn" onclick="openExportModal()" style="display:none">⬇️ Export</button>
+    <button class="btn btn-ghost" id="download-pdf-btn" onclick="downloadPDF()" style="font-size:8.5pt;padding:9px 16px">⬇ Download PDF</button>
     <button class="btn btn-primary" onclick="triggerPrint()">🖨 Print PDF</button>
   </div>
 </div>
@@ -1180,7 +1211,7 @@ td.att-cell{text-align:center;padding:6px 4px}
     <h2>📄 Report Preview — <span id="preview-title">—</span></h2>
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <button class="btn btn-ghost" style="font-size:8.5pt;padding:9px 16px" onclick="openLRC(0)">🪪 Learner Cards</button>
-      <span class="print-hint">In print dialog → <strong>Save as PDF</strong> · A4 · No margins</span>
+      <span class="print-hint">⬇ Download PDF saves directly · 🖨 Print opens browser dialog</span>
     </div>
   </div>
   <!-- Admin review bar -->
@@ -1263,6 +1294,7 @@ function initRole(){
       '#drafts-btn','button[onclick="saveNarratives(true)"]',
       '#export-btn','button[onclick="openModal(\'client\',\'add\')"]',
       'button[onclick="triggerPrint()"]',
+      '#download-pdf-btn',
     ];
     editSelectors.forEach(sel=>{
       document.querySelectorAll(sel).forEach(el=>{el.style.display='none';});
@@ -2906,7 +2938,108 @@ function triggerPrint(){
   }, 400);
 }
 
-function logReportPrint(){
+// ── Download PDF (html2canvas + jsPDF) ──
+async function downloadPDF(){
+  if(IS_ADMIN){toast('PDF download is disabled in admin review mode','warn',3000);return;}
+  const pages=document.getElementById('report-pages');
+  if(!pages||!pages.children.length){
+    toast('Please generate the report first before downloading','warn',4000);
+    return;
+  }
+
+  // Flush active element and ensure preview is visible
+  if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
+  document.getElementById('report-preview').classList.add('show');
+
+  const btn=document.getElementById('download-pdf-btn');
+  const origText=btn?btn.textContent:'';
+  if(btn){btn.disabled=true;btn.textContent='⏳ Generating…';}
+  toast('Generating PDF — please wait…','info',8000);
+
+  // Apply rendering class (mirrors @media print without actually printing)
+  document.body.classList.add('pdf-rendering');
+
+  // Short settle delay for fonts/layout
+  await new Promise(r=>setTimeout(r,350));
+
+  try{
+    const {jsPDF}=window.jspdf;
+    const A4_W_MM=210, A4_H_MM=297;
+    const pdf=new jsPDF({orientation:'portrait',unit:'mm',format:'a4',compress:true});
+
+    const pageEls=[...pages.children];
+    for(let i=0;i<pageEls.length;i++){
+      const el=pageEls[i];
+      // Temporarily make the element position absolute and full-width for accurate capture
+      const prevStyle=el.getAttribute('style')||'';
+      el.style.width='794px'; // 210mm @ 96dpi ≈ 794px
+      el.style.minHeight='1123px'; // 297mm @ 96dpi ≈ 1123px
+      el.style.boxShadow='none';
+      el.style.margin='0';
+      el.style.borderRadius='0';
+
+      const canvas=await html2canvas(el,{
+        scale:2,
+        useCORS:true,
+        allowTaint:false,
+        backgroundColor:'#ffffff',
+        logging:false,
+        windowWidth:794,
+      });
+
+      // Restore element style
+      el.setAttribute('style',prevStyle);
+
+      const imgData=canvas.toDataURL('image/jpeg',0.95);
+      const canvasW=canvas.width;
+      const canvasH=canvas.height;
+      // Scale canvas to A4 width, compute resulting height in mm
+      const imgH_mm=(canvasH/canvasW)*A4_W_MM;
+
+      if(i>0)pdf.addPage();
+      // If the page is taller than A4 (e.g. long attendance table), tile it
+      if(imgH_mm<=A4_H_MM+1){
+        pdf.addImage(imgData,'JPEG',0,0,A4_W_MM,imgH_mm,undefined,'FAST');
+      } else {
+        // Tall page: slice into A4-height chunks
+        const sliceH_px=(A4_H_MM/A4_W_MM)*canvasW;
+        let offsetPx=0;
+        let first=true;
+        while(offsetPx<canvasH){
+          if(!first)pdf.addPage();
+          first=false;
+          const sliceCanvas=document.createElement('canvas');
+          const actualSlice=Math.min(sliceH_px,canvasH-offsetPx);
+          sliceCanvas.width=canvasW;
+          sliceCanvas.height=actualSlice;
+          const ctx=sliceCanvas.getContext('2d');
+          ctx.drawImage(canvas,0,-offsetPx);
+          const sliceData=sliceCanvas.toDataURL('image/jpeg',0.95);
+          const sliceMmH=(actualSlice/canvasW)*A4_W_MM;
+          pdf.addImage(sliceData,'JPEG',0,0,A4_W_MM,sliceMmH,undefined,'FAST');
+          offsetPx+=sliceH_px;
+        }
+      }
+
+      // Update button progress
+      if(btn)btn.textContent=`⏳ ${i+1}/${pageEls.length}`;
+    }
+
+    // Build filename
+    const month=document.getElementById('sel-month').value||'report';
+    const clientName=(activeClient?.client_name||'Report').replace(/[^a-zA-Z0-9\s\-]/g,'').trim().replace(/\s+/g,'_');
+    const monthClean=month.replace(/[^a-zA-Z0-9\-]/g,'_');
+    pdf.save(`${clientName}_${monthClean}.pdf`);
+
+    toast('✅ PDF downloaded!','success',4000);
+  }catch(err){
+    console.error('PDF generation error:',err);
+    toast('PDF generation failed — try the Print button instead','warn',5000);
+  }finally{
+    document.body.classList.remove('pdf-rendering');
+    if(btn){btn.disabled=false;btn.textContent=origText;}
+  }
+}
   if(!activeProgramme||!activeClient||!isOnline)return;
   const month=document.getElementById('sel-month').value;
   const pLearners=getProgrammeLearners();
