@@ -1957,7 +1957,7 @@ body.compact-density .progress-bar-wrap{height:6px}
       <div id="client-import-hint" style="display:none;font-size:7pt;color:#b45309;margin-top:2px"></div>
     </div>
     <div class="field-wrap">
-      <label class="field-label">Programme</label>
+      <label class="field-label">Programme <span id="prog-type-badge" style="display:none;margin-left:4px;font-size:7pt;font-weight:700;letter-spacing:.08em;padding:2px 7px;border-radius:999px;vertical-align:middle"></span></label>
       <div class="field-row">
         <select class="field-select" id="sel-programme" onchange="onProgrammeChange()">
           <option value="">— Select programme —</option>
@@ -3056,6 +3056,43 @@ function setStatus(ok,txt){
 // ── Unit standards state (replaces hardcoded allUnits) ──
 let unitStandards=[];  // [{mod,cls,id,title,level,credits}]
 
+// ── LEGACY MODE (Session 26) ──────────────────────────────────────────────
+// A programme is either 'occupational' (QCTO — Module 1-4 KM/PM/WM + EISA,
+// the app's original behaviour) or 'legacy' (SETA unit-standard based —
+// credit accumulation, per-unit-standard Achieved / Not Yet Achieved).
+//
+// Stored client-side (localStorage, keyed by programme id) rather than as a
+// Supabase column. This is deliberate: the `programmes` table schema isn't
+// something this file can safely alter, and posting an unknown column to
+// Supabase on save would break programme saving entirely (see the PGRST204
+// handling in saveModal's catch block). If you later add a real
+// `programme_type` text column to `programmes` in Supabase, swap these two
+// functions to read/write `prog.programme_type` instead — everything else
+// in this file only calls isLegacyProgramme(prog), so that's the only place
+// that needs to change.
+function getProgrammeType(progId){
+  if(!progId)return'occupational';
+  try{return localStorage.getItem('apex_prog_type_'+progId)==='legacy'?'legacy':'occupational';}catch{return'occupational';}
+}
+function setProgrammeType(progId,val){
+  if(!progId)return;
+  try{localStorage.setItem('apex_prog_type_'+progId,val==='legacy'?'legacy':'occupational');}catch{}
+}
+function isLegacyProgramme(prog){
+  return!!prog&&getProgrammeType(prog.id)==='legacy';
+}
+function updateProgTypeBadge(){
+  const badge=document.getElementById('prog-type-badge');
+  if(!badge)return;
+  if(!activeProgramme){badge.style.display='none';return;}
+  const legacy=isLegacyProgramme(activeProgramme);
+  badge.style.display='inline-block';
+  badge.textContent=legacy?'LEGACY':'QCTO';
+  badge.style.background=legacy?'rgba(212,160,23,.18)':'rgba(45,74,122,.35)';
+  badge.style.color=legacy?'var(--gold2)':'#9db8e0';
+  badge.style.border=`1px solid ${legacy?'rgba(212,160,23,.4)':'rgba(157,184,224,.35)'}`;
+}
+
 // ── Empty state (replaces demo data) ──
 function showEmptyState(){
   setStatus(false,'Not Ready - Import or add data manually');
@@ -3129,6 +3166,7 @@ async function onProgrammeChange(){
   document.getElementById('btn-notes').disabled=!activeProgramme;
   const exportBtn=document.getElementById('export-btn');
   if(exportBtn)exportBtn.style.display=activeProgramme?'':'none';
+  updateProgTypeBadge();
   if(!activeProgramme)return;
 
   // Always clear stale learner/enrolment/attendance/eisa data from previous programme
@@ -3625,10 +3663,15 @@ function generateReport(skipChecklistGate){
   const attDates=getAttDates();
 
   // Compute total pages: 1 cover + 1 overview + 1 participation + 1 attendance
-  // + 4 assessment + 1 survey + 2 signoff = 11 base
+  // + assessment pages + 1 survey + 2 signoff = 11 base
   // (participation may be 2 pages if >SPLIT learners — count tables)
+  const isLegacy=isLegacyProgramme(prog);
   const participationPages=Math.ceil(pLearners.length/8)||1;
-  TOTAL_PAGES=1+1+1+participationPages+1+4+1+1+2; // +1 exec summary, +1 for notes page
+  // Occupational: 4 pages (Module 1-4 KM/PM/WM+EISA). Legacy: 1 or 2 pages
+  // (unit-standard matrix, split like participation once learner count grows).
+  const legacyAssessPages=Math.ceil(pLearners.length/8)||1;
+  const assessPageCount=isLegacy?legacyAssessPages:4;
+  TOTAL_PAGES=1+1+1+participationPages+1+assessPageCount+1+1+2; // +1 exec summary, +1 for notes page
 
   document.getElementById('preview-title').textContent=`${client.client_name} · ${month}`;
   document.getElementById('report-preview').classList.add('show');
@@ -3650,10 +3693,15 @@ function generateReport(skipChecklistGate){
   pages.appendChild(buildParticipationPage(pLearners,narratives,++pn));
   if(participationPages>1)pn+=participationPages-1;
   pages.appendChild(makeAttPageWrap(pLearners,attDates,++pn));
-  pages.appendChild(buildAssessmentPage(pLearners,1,narratives,++pn));
-  pages.appendChild(buildAssessmentPage(pLearners,2,narratives,++pn));
-  pages.appendChild(buildAssessmentPage(pLearners,3,narratives,++pn));
-  pages.appendChild(buildAssessmentPage(pLearners,4,narratives,++pn));
+  if(isLegacy){
+    const legacyPages=buildLegacyAssessmentPages(pLearners,prog,narratives,pn+1);
+    legacyPages.forEach(el=>{pn++;pages.appendChild(el);});
+  } else {
+    pages.appendChild(buildAssessmentPage(pLearners,1,narratives,++pn));
+    pages.appendChild(buildAssessmentPage(pLearners,2,narratives,++pn));
+    pages.appendChild(buildAssessmentPage(pLearners,3,narratives,++pn));
+    pages.appendChild(buildAssessmentPage(pLearners,4,narratives,++pn));
+  }
   pages.appendChild(buildSurveyPage(narratives,++pn));
   // Notes page — fetch async then insert before signoff
   fetchProgrammeNotes(prog.id,month).then(notes=>{
@@ -3791,18 +3839,39 @@ function computeCoverStats(pLearners,prog){
   const avgAtt=attCount>0?Math.round(attSum/attCount):null;
   const modNums=[...new Set(unitStandards.filter(u=>!u.saqa_id||u.saqa_id===prog.saqa_id).map(u=>u.mod||1))];
   let flagged=0;
-  modNums.forEach(m=>{
-    let anyNYC=false;
-    pLearners.forEach(l=>{
-      const res=(eisaState[l.id]||{})[m]||{};
-      const ek=`${l.id}_m${m}`;
-      const ov=narratives._eisa||{};
-      const mv=(f,v)=>ov[`${ek}_${f}`]!==undefined?ov[`${ek}_${f}`]:(v||'');
-      const vals=[mv('km',res.km),mv('pm',res.pm),mv('wm',res.wm),mv('examv1',res.examv1),mv('examv2',res.examv2)].filter(v=>v);
-      if(vals.some(v=>v==='NYC'))anyNYC=true;
+  const legacy=isLegacyProgramme(prog);
+  if(legacy){
+    // Legacy: a "module" (unit-standard grouping) is flagged if any learner has
+    // been marked Not Yet Achieved on any unit standard within that group.
+    const unitsByMod={};
+    unitStandards.filter(u=>!u.saqa_id||u.saqa_id===prog.saqa_id).forEach(u=>{
+      const m=u.mod||1;
+      (unitsByMod[m]=unitsByMod[m]||[]).push(u);
     });
-    if(anyNYC)flagged++;
-  });
+    modNums.forEach(m=>{
+      const units=unitsByMod[m]||[];
+      let anyNYC=false;
+      pLearners.forEach(l=>{
+        units.forEach(u=>{
+          if((narratives._eisa||{})[usKey(l.id,u.id)]==='NYC')anyNYC=true;
+        });
+      });
+      if(anyNYC)flagged++;
+    });
+  } else {
+    modNums.forEach(m=>{
+      let anyNYC=false;
+      pLearners.forEach(l=>{
+        const res=(eisaState[l.id]||{})[m]||{};
+        const ek=`${l.id}_m${m}`;
+        const ov=narratives._eisa||{};
+        const mv=(f,v)=>ov[`${ek}_${f}`]!==undefined?ov[`${ek}_${f}`]:(v||'');
+        const vals=[mv('km',res.km),mv('pm',res.pm),mv('wm',res.wm),mv('examv1',res.examv1),mv('examv2',res.examv2)].filter(v=>v);
+        if(vals.some(v=>v==='NYC'))anyNYC=true;
+      });
+      if(anyNYC)flagged++;
+    });
+  }
   return{avgAtt,flagged,onTrack:Math.max(0,totalMods-flagged),totalMods};
 }
 
@@ -4138,9 +4207,23 @@ function buildParticipationPage(pLearners,nar,pn=3){
   function getRiskLabel(l){
     const res=eisaState[l.id]||{};
     const hasAny=Object.keys(res).length>0;
+    if(isLegacyProgramme(activeProgramme))return getLegacyRiskLabel(l);
     if(!hasAny)return'Unknown';
     let nyc=0,total=0;
     [1,2,3,4].forEach(m=>{const r=res[m]||{};['km','pm','wm'].forEach(k=>{if(r[k]){total++;if(r[k]==='NYC')nyc++;}});});
+    if(!total)return'Unknown';
+    const pct=nyc/total;
+    return pct===0?'Low':pct<=0.5?'Medium':'High';
+  }
+  // Legacy equivalent: risk based on the proportion of Not-Yet-Achieved unit standards.
+  function getLegacyRiskLabel(l){
+    const units=unitStandards.filter(u=>!u.saqa_id||u.saqa_id===activeProgramme.saqa_id);
+    if(!units.length)return'Unknown';
+    let nyc=0,total=0;
+    units.forEach(u=>{
+      const v=(nar._eisa||{})[usKey(l.id,u.id)];
+      if(v){total++;if(v==='NYC')nyc++;}
+    });
     if(!total)return'Unknown';
     const pct=nyc/total;
     return pct===0?'Low':pct<=0.5?'Medium':'High';
@@ -4180,8 +4263,20 @@ function buildParticipationPage(pLearners,nar,pn=3){
     </tr>`;
   };
 
-  // Split learners into satisfactory (WM reached) vs remediation
+  // Split learners into satisfactory vs remediation.
+  // Occupational: WM (Workplace Module) reached Competent on any module.
+  // Legacy: at least half the registered unit standards' credits achieved.
   function learnerIsCompetent(l){
+    if(isLegacyProgramme(activeProgramme)){
+      const units=unitStandards.filter(u=>!u.saqa_id||u.saqa_id===activeProgramme.saqa_id);
+      const totalCredits=units.reduce((s,u)=>s+(+u.credits||0),0);
+      if(!totalCredits)return false;
+      const earned=units.reduce((s,u)=>{
+        const v=(nar._eisa||{})[usKey(l.id,u.id)];
+        return s+(v==='C'?(+u.credits||0):0);
+      },0);
+      return earned/totalCredits>=0.5;
+    }
     const res=eisaState[l.id]||{};
     return[1,2,3,4].some(m=>(res[m]||{}).wm==='C');
   }
@@ -4428,6 +4523,110 @@ function buildAssessmentPage(pLearners,modNum,nar,pn){
   return pageShell(pn||4+modNum,0,activeClient.client_name,'Assessment — Module '+modNum,body);
 }
 
+// ── LEGACY (SETA Unit Standards) assessment pages ──────────────────────────
+// Used instead of buildAssessmentPage(1..4) when isLegacyProgramme(prog) is
+// true. One row per learner, one column per unit standard registered against
+// this programme's SAQA ID (via the existing "Unit Standards" panel), with
+// Achieved / Not Yet Achieved per cell and a running credit total per
+// learner — the SETA equivalent of the occupational KM/PM/WM+EISA grid.
+// Paginated in chunks of SPLIT learners per page, same as Participation.
+function usKey(learnerId,usCode){
+  return`${learnerId}_us_${String(usCode).replace(/[^a-zA-Z0-9]/g,'')}`;
+}
+function buildLegacyAssessmentPages(pLearners,prog,nar,startPn){
+  const units=unitStandards
+    .filter(u=>!u.saqa_id||u.saqa_id===prog.saqa_id)
+    .sort((a,b)=>(a.mod||1)-(b.mod||1)||String(a.id).localeCompare(String(b.id)));
+  const totalCredits=units.reduce((s,u)=>s+(+u.credits||0),0);
+  const chunks=[];
+  for(let i=0;i<pLearners.length;i+=SPLIT)chunks.push(pLearners.slice(i,i+SPLIT));
+  if(!chunks.length)chunks.push([]);
+
+  if(!units.length){
+    const body=`<div class="mod-section-header" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap"><span>Unit Standards Achieved</span></div>
+      <div style="padding:32px;text-align:center;color:var(--muted);font-size:9pt">
+        No unit standards are registered for this programme yet.<br>
+        <button type="button" class="btn btn-primary no-print" style="margin-top:12px;font-size:8.5pt;padding:8px 16px" onclick="openUsPanel()">📐 Add Unit Standards</button>
+      </div>`;
+    return[pageShell(startPn,0,activeClient.client_name,'Assessment — Unit Standards',body)];
+  }
+
+  return chunks.map((chunk,pageIdx)=>{
+    const tableId=`legacy-us-table-${pageIdx}`;
+    const rows=chunk.map(l=>{
+      const cells=units.map(u=>{
+        const key=usKey(l.id,u.id);
+        const saved=(nar._eisa||{})[key];
+        const v=saved!==undefined?saved:'';
+        const bc=v==='C'?'badge-c':v==='NYC'?'badge-nyc':'badge-na';
+        const label=v==='C'?'Achieved':v==='NYC'?'Not Yet':'—';
+        return`<td style="text-align:center"><div><select class="result-select result-screen legacy-us-select" data-eisa="${key}" data-credits="${+u.credits||0}" onchange="syncUsResult(this)"><option value="">&#8212;</option><option value="C" ${v==='C'?'selected':''}>Achieved</option><option value="NYC" ${v==='NYC'?'selected':''}>Not Yet</option></select><span class="result-print badge ${bc}">${label}</span></div></td>`;
+      }).join('');
+      const earned=units.reduce((s,u)=>{
+        const v=(nar._eisa||{})[usKey(l.id,u.id)]||'';
+        return s+(v==='C'?(+u.credits||0):0);
+      },0);
+      const complete=earned>=totalCredits&&totalCredits>0;
+      const anyProgress=earned>0;
+      const status=complete?'<span class="badge badge-c">Complete</span>':anyProgress?'<span class="badge badge-nyc">In Progress</span>':'<span class="badge badge-pending">Pending</span>';
+      return`<tr><td>${esc(l.first_name)} ${esc(l.last_name)}</td><td style="font-family:var(--mono);font-size:7.5pt">${esc(l.id_number)}</td>${cells}<td class="legacy-credits-cell" style="text-align:center;font-family:var(--mono);font-size:8pt;white-space:nowrap">${earned} / ${totalCredits}</td><td class="legacy-status-cell" style="text-align:center">${status}</td></tr>`;
+    }).join('');
+    const head=`<th>Learner Name</th><th>ID Number</th>${units.map(u=>`<th style="text-align:center;font-size:7pt" title="${esc(u.title||'')}">${esc(u.id)}<br><span style="font-weight:400;opacity:.7">${esc(String(u.credits||0))}cr</span></th>`).join('')}<th style="text-align:center">Credits</th><th style="text-align:center">Status</th>`;
+    const body=`<div class="mod-section-header" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <span>Unit Standards Achieved &nbsp;&middot;&nbsp; ${units.length} unit standard${units.length!==1?'s':''} &nbsp;&middot;&nbsp; ${totalCredits} credits total</span>
+        <span class="no-print" style="display:flex;gap:6px">
+          <button type="button" class="btn btn-ghost" style="font-size:7.5pt;padding:4px 9px" onclick="bulkSetLegacyResults('${tableId}','C')">Set all Achieved</button>
+          <button type="button" class="btn btn-ghost" style="font-size:7.5pt;padding:4px 9px" onclick="bulkSetLegacyResults('${tableId}','NYC')">Set all Not Yet</button>
+          <button type="button" class="btn btn-ghost" style="font-size:7.5pt;padding:4px 9px" onclick="bulkSetLegacyResults('${tableId}','')">Clear All</button>
+        </span>
+      </div>
+      <div style="overflow-x:auto">
+        <table id="${tableId}" class="data-table" style="break-inside:avoid;page-break-inside:avoid;min-width:${360+units.length*70}px"><thead><tr style="--th-grad:linear-gradient(90deg,${activeProvider.accentFrom},${activeProvider.accentTo})">${head}</tr></thead><tbody>${rows}</tbody></table>
+      </div>
+      <div style="display:flex;gap:12px;margin-top:8px;flex-wrap:wrap"><span class="badge badge-c">Achieved</span><span class="badge badge-nyc">Not Yet Achieved</span><span class="badge badge-na">&#8212; = Not Yet Assessed</span></div>`;
+    return pageShell(startPn+pageIdx,0,activeClient.client_name,'Assessment — Unit Standards'+(chunks.length>1?` (${pageIdx+1}/${chunks.length})`:''),body);
+  });
+}
+function syncUsResult(sel){
+  const printSpan=sel.nextElementSibling;
+  if(printSpan&&printSpan.classList.contains('result-print')){
+    const v=sel.value;
+    printSpan.className='result-print badge '+(v==='C'?'badge-c':v==='NYC'?'badge-nyc':'badge-na');
+    printSpan.textContent=v==='C'?'Achieved':v==='NYC'?'Not Yet':'—';
+  }
+  if(!narratives._eisa)narratives._eisa={};
+  narratives._eisa[sel.dataset.eisa]=sel.value;
+  updateLegacyRowCredits(sel);
+  syncEisaToSupabase(sel); // no-op: key doesn't match the module regex, safe by design
+  autoSave();
+}
+function updateLegacyRowCredits(sel){
+  const tr=sel.closest('tr');
+  if(!tr)return;
+  let earned=0,total=0;
+  tr.querySelectorAll('select.legacy-us-select').forEach(s=>{
+    const c=+s.dataset.credits||0;
+    total+=c;
+    if(s.value==='C')earned+=c;
+  });
+  const credCell=tr.querySelector('.legacy-credits-cell');
+  if(credCell)credCell.textContent=`${earned} / ${total}`;
+  const statusCell=tr.querySelector('.legacy-status-cell');
+  if(statusCell){
+    const complete=earned>=total&&total>0;
+    const anyProgress=earned>0;
+    statusCell.innerHTML=complete?'<span class="badge badge-c">Complete</span>':anyProgress?'<span class="badge badge-nyc">In Progress</span>':'<span class="badge badge-pending">Pending</span>';
+  }
+}
+function bulkSetLegacyResults(tableId,value){
+  const table=document.getElementById(tableId);
+  if(!table)return;
+  table.querySelectorAll('select.legacy-us-select').forEach(sel=>{
+    sel.value=value;
+    syncUsResult(sel);
+  });
+  toast(value==='C'?'All set to Achieved':value==='NYC'?'All set to Not Yet Achieved':'Cleared','success',2000);
+}
 
 const SURVEY_ITEMS=[
   {section:'A. Logistics and Support'},
@@ -6297,6 +6496,13 @@ function openModal(type,mode,learnerId){
       <div class="modal-field"><label>Programme Name *</label>
         <input class="modal-input" id="mf-programme_name" placeholder="e.g. OC: Insurance Underwriter NQF Level 5" value="${v('programme_name')}">
       </div>
+      <div class="modal-field"><label>Qualification Type</label>
+        <select class="modal-select" id="mf-programme_type">
+          <option value="occupational">Occupational (QCTO — Modules + EISA)</option>
+          <option value="legacy">Legacy (SETA Unit Standards)</option>
+        </select>
+        <div style="font-size:7.5pt;color:var(--muted);margin-top:4px">Legacy swaps the report's assessment pages to per-unit-standard Achieved / Not Yet Achieved tracking with credit totals, instead of Module 1–4 KM/PM/WM + EISA.</div>
+      </div>
       <div class="modal-grid">
         <div class="modal-field"><label>SAQA ID <span style="color:var(--red)">*</span></label>
           <input class="modal-input" id="mf-saqa_id" placeholder="e.g. 117329" value="${v('saqa_id')}">
@@ -6346,6 +6552,11 @@ function openModal(type,mode,learnerId){
   }
 
   document.getElementById('modal-body').innerHTML=html;
+  // Restore saved Qualification Type (client-side only — see getProgrammeType)
+  if(type==='programme'){
+    const ptSel=document.getElementById('mf-programme_type');
+    if(ptSel)ptSel.value=getProgrammeType(isEdit&&src?src.id:null);
+  }
   document.getElementById('modal-overlay').classList.add('open');
   // Focus first input
   setTimeout(()=>document.querySelector('#modal-body .modal-input')?.focus(),50);
@@ -6572,6 +6783,10 @@ async function saveModal(){
         if(!programmes.find(p=>p.id===saved.id))programmes.push(saved);
         activeProgramme=saved;  // set before onProgrammeChange so generate button enables
       }
+      // Persist Qualification Type (client-side — see getProgrammeType)
+      const chosenType=document.getElementById('mf-programme_type')?.value||'occupational';
+      setProgrammeType(saved.id,chosenType);
+      updateProgTypeBadge();
       // Rebuild programme dropdown for current client
       const sel=document.getElementById('sel-programme');
       sel.innerHTML='<option value="">— Select programme —</option>';
