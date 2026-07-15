@@ -1699,7 +1699,7 @@ body.compact-density .progress-bar-wrap{height:6px}
   @media(max-width:768px){body{padding-bottom:calc(80px + env(safe-area-inset-bottom))}}
 }
 </style>
-<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit&onload=_onTurnstileLibReady" async defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js" onerror="this.onerror=null;var s=document.createElement('script');s.src='https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js';s.onload=function(){window.dispatchEvent(new Event('_sbLibLoaded'));};document.head.appendChild(s);"></script>
@@ -10051,6 +10051,8 @@ function importOverwriteWarning(progMap,learnerRows){
 function _showLoginScreen(){
   const el=document.getElementById('login-screen');
   if(el){el.classList.add('show');}
+  // Render Turnstile now that the containers are actually visible (see explicit-render note above)
+  _renderTurnstileWidgets();
   // Focus email on next frame
   setTimeout(()=>document.getElementById('login-email')?.focus(),100);
 }
@@ -10101,6 +10103,42 @@ let _resetTurnstileToken='';
 function _onResetTurnstileOk(token){_resetTurnstileToken=token;}
 function _onResetTurnstileErr(){_resetTurnstileToken='';}
 function _onResetTurnstileExpired(){_resetTurnstileToken='';}
+
+// Explicit-render Turnstile handling.
+// #login-screen (and #reset-turnstile's container) start display:none and only
+// become visible later via _showLoginScreen(). Turnstile's implicit auto-scan runs
+// at script-load time, before that — so it silently fails to mount a working widget.
+// We render explicitly instead, once the containers are actually visible.
+let _tsLibReady=false;
+let _loginWidgetId=null;
+let _resetWidgetId=null;
+function _onTurnstileLibReady(){
+  _tsLibReady=true;
+  _renderTurnstileWidgets();
+}
+function _renderTurnstileWidgets(){
+  if(!_tsLibReady||!window.turnstile)return;
+  const loginEl=document.getElementById('login-turnstile');
+  if(loginEl&&_loginWidgetId===null){
+    _loginWidgetId=window.turnstile.render(loginEl,{
+      sitekey:loginEl.getAttribute('data-sitekey'),
+      appearance:'interaction-only',
+      callback:_onTurnstileOk,
+      'error-callback':_onTurnstileErr,
+      'expired-callback':_onTurnstileExpired
+    });
+  }
+  const resetEl=document.getElementById('reset-turnstile');
+  if(resetEl&&_resetWidgetId===null){
+    _resetWidgetId=window.turnstile.render(resetEl,{
+      sitekey:resetEl.getAttribute('data-sitekey'),
+      appearance:'interaction-only',
+      callback:_onResetTurnstileOk,
+      'error-callback':_onResetTurnstileErr,
+      'expired-callback':_onResetTurnstileExpired
+    });
+  }
+}
 
 async function _authSignIn(){
   const email=(document.getElementById('login-email')?.value||'').trim();
