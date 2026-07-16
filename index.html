@@ -2464,7 +2464,7 @@ function initRole(){
     // Restore History button label (undo "Review Queue" rename)
     const histBtn=document.querySelector('button[onclick="openHistoryPanel()"]');
     if(histBtn){
-      histBtn.childNodes.forEach(n=>{if(n.nodeType===3)n.textContent='🕛 History';});
+      histBtn.childNodes.forEach(n=>{if(n.nodeType===3)n.textContent='🕓 History';});
       const existingBadge=histBtn.querySelector('#review-pending-badge');
       if(existingBadge){existingBadge.style.display='';}
     }
