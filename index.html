@@ -4151,9 +4151,10 @@ const MOD_STATUS_STYLE={
 function buildOverviewPage(prog,client,pLearners,pn=2){
   const nar=narratives;
   const p=activeProvider||PROVIDERS.apex;
+  const legacy=isLegacyProgramme(prog);
   const mods=[1,2,3,4].map(n=>{
     const modUnits=unitStandards.filter(u=>u.mod===n&&(!u.saqa_id||u.saqa_id===prog.saqa_id));
-    const unitStr=modUnits.length?modUnits.map(u=>u.id).join(' · '):`KM-0${n} · PM-0${n} · WM-0${n}`;
+    const unitStr=modUnits.length?modUnits.map(u=>u.id).join(' · '):(legacy?'':`KM-0${n} · PM-0${n} · WM-0${n}`);
     const clsMap={1:'m1',2:'m2',3:'m3',4:'m4'};
     const fieldMap={1:'module_1_dates',2:'module_2_dates',3:'module_3_dates',4:'module_4_dates'};
     return{cls:clsMap[n],label:`Module ${n}`,field:fieldMap[n],dates:prog[fieldMap[n]]||'',units:unitStr};
