@@ -6688,6 +6688,7 @@ async function saveModal(){
         contact_person:mval('mf-contact_person')||null,
         contact_number:mval('mf-contact_number')||null,
         contact_email:mval('mf-contact_email')||null,
+        if(modalMode!=='edit'){payload.owner_email=_authUser?.email||null;}
       };
       let saved;
       const clientIdIsTemp=typeof activeClient?.id==='number'&&activeClient.id>1e12;
@@ -6763,6 +6764,7 @@ async function saveModal(){
         start_date:mval('mf-start_date')||null,
         end_date:mval('mf-end_date')||null,
         report_due_date:mval('mf-report_due_date')||null,
+        if(modalMode!=='edit'){payload.owner_email=_authUser?.email||null;}
       };
       // Validate module date ordering
       const modDateWarns=[];
