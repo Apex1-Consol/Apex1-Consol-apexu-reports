@@ -2165,7 +2165,18 @@ body.compact-density .progress-bar-wrap{height:6px}
     </div>
     <div class="us-add-actions">
       <div id="us-add-error" style="font-size:8pt;color:#f87171;flex:1;align-self:center;display:none"></div>
+      <button class="btn btn-ghost" style="font-size:8pt;padding:8px 14px;border-radius:var(--r)" onclick="toggleUsBulkRow()">📥 Bulk Import</button>
       <button class="btn btn-success" style="font-size:8pt;padding:8px 16px;border-radius:var(--r)" onclick="addUnitStandard()">Add</button>
+    </div>
+    <div class="us-add-row" id="us-bulk-row" style="display:none;padding:12px 0 0;margin-top:10px;border-top:1px solid rgba(255,255,255,.08)">
+      <div style="font-size:7.5pt;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.4);margin-bottom:6px">Bulk Import — paste from Excel</div>
+      <div style="font-size:7.5pt;color:rgba(255,255,255,.35);margin-bottom:8px">Columns, one row per unit standard: US ID · Module # · Title · Level · Credits</div>
+      <textarea class="us-input" id="us-bulk-paste" placeholder="Paste rows here (tab or comma separated)…" style="min-height:90px;font-family:var(--mono);font-size:8pt;resize:vertical"></textarea>
+      <div class="us-add-actions" style="margin-top:8px">
+        <div id="us-bulk-error" style="font-size:8pt;color:#f87171;flex:1;align-self:center;display:none"></div>
+        <button class="btn btn-ghost" style="font-size:8pt;padding:8px 14px;border-radius:var(--r)" onclick="toggleUsBulkRow()">Cancel</button>
+        <button class="btn btn-success" style="font-size:8pt;padding:8px 16px;border-radius:var(--r)" onclick="importUnitStandardsBulk()">Import Rows</button>
+      </div>
     </div>
   </div>
   <!-- Module filter -->
@@ -11228,6 +11239,69 @@ async function addUnitStandard(){
     errEl.style.display='block';
     toast('Failed to add unit standard: '+err.message,'error');
   }
+}
+
+function toggleUsBulkRow(){
+  const row=document.getElementById('us-bulk-row');
+  if(!row)return;
+  const show=row.style.display==='none';
+  row.style.display=show?'block':'none';
+  if(show){
+    document.getElementById('us-bulk-paste')?.focus();
+  }else{
+    const ta=document.getElementById('us-bulk-paste');if(ta)ta.value='';
+    const err=document.getElementById('us-bulk-error');if(err){err.style.display='none';err.textContent='';}
+  }
+}
+
+async function importUnitStandardsBulk(){
+  if(!activeProgramme){toast('No programme selected','warn',3000);return;}
+  const ta=document.getElementById('us-bulk-paste');
+  const errEl=document.getElementById('us-bulk-error');
+  const raw=(ta?.value||'').trim();
+  if(!raw){errEl.textContent='Paste some rows first.';errEl.style.display='block';return;}
+  if(!activeProgramme.saqa_id){errEl.textContent='This programme has no SAQA ID set. Please edit the programme and add a SAQA ID before adding unit standards.';errEl.style.display='block';return;}
+  errEl.style.display='none';
+
+  const lines=raw.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+  const rows=lines.map(l=>l.split(/\t|,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(c=>c.trim().replace(/^"|"$/g,'')));
+
+  let added=0,skipped=0;
+  for(const cols of rows){
+    const usId=(cols[0]||'').trim();
+    const mod=+(cols[1]||1)||1;
+    const title=(cols[2]||'').trim();
+    const level=(cols[3]||'').trim();
+    const credits=+(cols[4]||0)||0;
+    if(!usId||!title){skipped++;continue;}
+
+    const payload={
+      tenant_id:TENANT_DB_ID,
+      saqa_id:activeProgramme.saqa_id,
+      us_id:usId,
+      us_title:title,
+      us_level:level,
+      us_credits:credits,
+      module_number:mod,
+    };
+    const localId='us_'+Date.now()+'_'+Math.random().toString(36).slice(2);
+    const localRec={_localId:localId,mod,id:usId,title,level,credits,saqa_id:activeProgramme.saqa_id||null};
+
+    try{
+      if(isOnline){
+        const rec=await sbPost('unit_standards',payload);
+        if(rec)localRec._dbId=rec.id;
+      }
+      unitStandards.push(localRec);
+      added++;
+    }catch(err){
+      skipped++;
+    }
+  }
+
+  toggleUsBulkRow();
+  renderUsList();
+  toast(`Imported ${added} unit standard${added===1?'':'s'}${skipped?`, skipped ${skipped} invalid row${skipped===1?'':'s'}`:''}`,added?'success':'warn',4000);
 }
 
 function editUsInline(localId){
