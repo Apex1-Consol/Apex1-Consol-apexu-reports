@@ -2444,6 +2444,38 @@ function initRole(){
     pill.className='role-pill pm';
     pill.textContent='🛠 Project Manager';
     txt.textContent='Full editing access. Use "Send for Review" to submit reports to the admin.';
+
+    // Restore editing controls that the admin branch may have hidden
+    // (needed because signing out of admin and into PM in the same tab
+    // does not reload the page, so admin-mode DOM changes must be undone here)
+    const editSelectors=[
+      '#btn-add-prog','#btn-edit-prog','#btn-edit-client','#btn-learners',
+      '#btn-add-client','button[onclick="openImportModal()"]',
+      'button[onclick="openAssessorPanel()"]','button[onclick="openUsPanel()"]',
+      'button[onclick="openNotesPanel()"]',
+      '#drafts-btn','button[onclick="saveNarratives(true)"]',
+      '#export-btn','button[onclick="openModal(\'client\',\'add\')"]',
+      'button[onclick="triggerPrint()"]',
+    ];
+    editSelectors.forEach(sel=>{
+      document.querySelectorAll(sel).forEach(el=>{el.style.display='';});
+    });
+
+    // Restore History button label (undo "Review Queue" rename)
+    const histBtn=document.querySelector('button[onclick="openHistoryPanel()"]');
+    if(histBtn){
+      histBtn.childNodes.forEach(n=>{if(n.nodeType===3)n.textContent='🕛 History';});
+      const existingBadge=histBtn.querySelector('#review-pending-badge');
+      if(existingBadge){existingBadge.style.display='';}
+    }
+
+    // Restore Generate button label/color
+    const genBtn=document.getElementById('gen-btn');
+    if(genBtn){genBtn.textContent='▶ Generate Report';genBtn.style.background='';}
+
+    // Restore provider selector
+    const provWrap=document.querySelector('#sel-provider')?.closest('.field-wrap');
+    if(provWrap)provWrap.style.display='';
   }
 }
 
