@@ -10221,9 +10221,18 @@ async function softDeleteProgramme(programmeId){
 async function sbDelete(table,id){
   const r=await fetch(`${SB_URL}/rest/v1/${table}?id=eq.${id}`,{
     method:'DELETE',
-    headers:{...HEADERS,...schemaHeaders(table)},
+    headers:{...HEADERS,...schemaHeaders(table),'Prefer':'return=representation'},
   });
   if(!r.ok)throw new Error(await r.text());
+  // PostgREST returns 200 OK even when RLS matches 0 rows (e.g. deleting someone
+  // else's report) — with return=representation the body is the array of rows
+  // actually deleted, so an empty array means nothing happened and callers must
+  // not report success.
+  let deleted;
+  try{deleted=await r.json();}catch{deleted=null;}
+  if(Array.isArray(deleted)&&deleted.length===0){
+    throw new Error('No matching record was deleted — you may not have permission to delete this item.');
+  }
 }
 
 // ── Offline write queue ──
