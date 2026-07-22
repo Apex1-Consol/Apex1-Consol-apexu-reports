@@ -6325,7 +6325,7 @@ function logReportPrint(){
     month,
     learner_count:pLearners.length,
     printed_at:printedAt,
-    status:'pending',
+    status:'pending',submitted_by_email:_authUser?.email||null,
   };
   sbPost('reports',payload).then(rec=>{
     if(rec&&rec.id){
