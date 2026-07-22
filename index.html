@@ -6606,8 +6606,8 @@ function openModal(type,mode,learnerId){
       <div class="modal-section" style="color:var(--danger,#C8272C);margin-top:18px">Danger Zone</div>
       <div style="font-size:8pt;color:rgba(255,255,255,.5);margin-bottom:8px">
         ${type==='client'
-          ?'Removes this client and every programme under it from view. Nothing is permanently erased — recoverable by contacting support.'
-          :'Removes this programme and its learner enrolments from view. Nothing is permanently erased — recoverable by contacting support.'}
+          ?'Permanently deletes this client and every programme under it, including all learner data (enrolments, attendance, EISA results). This cannot be undone.'
+          :'Permanently deletes this programme and all its learner data (enrolments, attendance, EISA results). This cannot be undone.'}
       </div>
       <button type="button" class="btn btn-ghost" id="btn-delete-entity" style="border-color:var(--danger,#C8272C);color:var(--danger,#C8272C);font-size:8.5pt;padding:8px 14px" onclick="deleteActiveEntity()">🗑 Delete ${entityLabel}</button>`;
   }
@@ -6885,61 +6885,18 @@ async function saveModal(){
 }
 
 // ── Delete a client or programme from the Edit modal's Danger Zone ──
-// Soft-deletes (sets deleted_at) rather than hard-deleting, matching how the rest of the
-// app already treats these two tables (every list/dashboard query filters on
-// "deleted_at is null") — so this is consistent with, not a special case of, existing
-// data-retention behaviour, and is reversible without a database restore.
+// Thin delegator to the existing deleteClient/deleteProgramme functions (the same ones
+// wired to the Dashboard's trash-icon buttons) rather than a separate implementation —
+// those already perform the real, production cascading hard-delete of all dependent
+// records (enrolments, attendance, EISA, learner comments, etc.) and own their own
+// confirm dialog. This just closes the Edit modal and routes to them.
 async function deleteActiveEntity(){
   const isClientDel=modalType==='client';
   const entity=isClientDel?activeClient:activeProgramme;
   if(!entity)return;
-  const label=isClientDel?entity.client_name:entity.programme_name;
-
-  let warn='';
-  if(isClientDel){
-    const linkedProgs=programmes.filter(p=>String(p.client_id)===String(entity.id));
-    if(linkedProgs.length)warn=`
-
-This will also remove ${linkedProgs.length} programme${linkedProgs.length!==1?'s':''} under this client from view (and their learner enrolments), since a programme can't be shown without its client.`;
-  }else{
-    const linkedCount=enrolments.filter(e=>String(e.programme_id)===String(entity.id)).length;
-    if(linkedCount)warn=`
-
-This will remove ${linkedCount} learner enrolment${linkedCount!==1?'s':''} from view for this programme.`;
-  }
-  const ok=await showConfirmDialog(`Delete "${label}"?${warn}
-
-This can be undone by contacting support — nothing is permanently erased.`);
-  if(!ok)return;
-
-  const delBtn=document.getElementById('btn-delete-entity');
-  if(delBtn){delBtn.disabled=true;delBtn.textContent='Deleting…';}
-
-  try{
-    const table=isClientDel?'clients':'programmes';
-    if(isOnline)await sbPatch(table,entity.id,{deleted_at:new Date().toISOString()});
-
-    if(isClientDel){
-      clients=clients.filter(c=>c.id!==entity.id);
-      programmes=programmes.filter(p=>String(p.client_id)!==String(entity.id));
-    }else{
-      programmes=programmes.filter(p=>p.id!==entity.id);
-    }
-    activeClient=null;activeProgramme=null;
-    learners=[];enrolments=[];attendance=[];eisa=[];
-    attState={};eisaState={};remoteComments={};
-
-    saveSnapshot({clients,programmes,assessors,learners,enrolments,attendance,eisa});
-    closeModal();
-    populateClients();
-    document.getElementById('sel-client').value='';
-    onClientChange();
-    updateStepsGuide();
-    toast(`${isClientDel?'Client':'Programme'} deleted`,'success',3000);
-  }catch(e){
-    if(delBtn){delBtn.disabled=false;delBtn.textContent='🗑 Delete '+(isClientDel?'Client':'Programme');}
-    modalErr('Delete failed: '+e.message);
-  }
+  closeModal();
+  if(isClientDel)await deleteClient(entity.id);
+  else await deleteProgramme(entity.id);
 }
 
 // ── Excel Import ──
