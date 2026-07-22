@@ -7931,6 +7931,37 @@ function previewImport(input){
       // programme record (e.g. a SAQA/module sheet) — so it can't be merged per-sheet above.
       // Apply it workbook-wide to any programme that's still missing the field, including the
       // learner-only placeholder synthesized just above.
+      // ── Domain/filename fallback ──
+      // Flat LMS/Moodle-style progress exports (just a header row + data, no "Client:" label
+      // cell and no LTIA-style title row) leave both fallbacks above empty, so every such
+      // import previously landed on the generic 'Imported Client'/'Imported Programme'
+      // placeholder with zero trace of the source. Try two more signals before giving up:
+      // the learners' shared email domain for the client, and the uploaded filename for the
+      // programme. Either is a rough guess the PM can correct in one click via Edit
+      // Client/Edit Programme — but a guess beats a placeholder with no information in it.
+      if(!wbClientFallback){
+        const domainCounts={};
+        allLearners.forEach(l=>{
+          const m=(l.email||'').match(/@([\w.-]+)\.[a-z]{2,}$/i);
+          if(m)domainCounts[m[1].toLowerCase()]=(domainCounts[m[1].toLowerCase()]||0)+1;
+        });
+        const topDomain=Object.keys(domainCounts).sort((a,b)=>domainCounts[b]-domainCounts[a])[0];
+        const FREE_MAIL=/^(gmail|yahoo|outlook|hotmail|icloud|live|msn|mail)$/i;
+        if(topDomain&&!FREE_MAIL.test(topDomain)){
+          wbClientFallback=topDomain.split('.')[0].replace(/[-_]+/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+        }
+      }
+      if(!wbQualificationFallback&&file&&file.name){
+        // Strip extension, a leading "progress_<id>_" export-tool prefix, and a trailing
+        // "_csv_21_July_2026"-style export-date suffix, leaving just the qualification name.
+        let base=file.name.replace(/\.(xlsx|xls|csv)$/i,'')
+          .replace(/^progress[_-]?\d*[_-]?/i,'')
+          .replace(/[_-]?csv[_-]?\d{1,2}[_-][a-z]+[_-]\d{4}$/i,'')
+          .replace(/[_-]?\d{1,2}[_-][a-z]+[_-]\d{4}$/i,'');
+        base=base.replace(/[_-]+/g,' ').trim();
+        if(base)wbQualificationFallback=base.replace(/\b\w/g,c=>c.toUpperCase());
+      }
+
       if(wbFacilitatorFallback||wbAssessorFallback||wbClientFallback||wbQualificationFallback||wbSaqaFallback){
         Object.values(progMap).forEach(p=>{
           if(!p.facilitator_name&&wbFacilitatorFallback)p.facilitator_name=wbFacilitatorFallback;
@@ -8008,6 +8039,20 @@ function previewImport(input){
         const pkey=match?match[0]:(progEntries[0]?.[0]||'');
         return{...l,_pkey:pkey};
       });
+
+      // ── Suspicious/test-account flag ──
+      // LMS exports occasionally carry a placeholder/QA test account alongside real
+      // learners. Never silently drop it — deleting data the PM didn't ask us to delete is
+      // worse than one extra row — but flag it in the same preview warning list used for
+      // sheet-parsing issues, so it gets reviewed and removed deliberately before Save.
+      const suspectLearners=linkedLearners.filter(l=>{
+        const fullName=`${l.first_name||''} ${l.last_name||''}`.trim();
+        return /\btest\b/i.test(fullName)||/^test[.\-_]?(learner|user|account)?@/i.test(l.email||'');
+      });
+      if(suspectLearners.length){
+        const names=suspectLearners.map(l=>esc(`${l.first_name||''} ${l.last_name||''}`.trim())).join(', ');
+        sheetWarnings.push(`${suspectLearners.length} learner${suspectLearners.length!==1?'s':''} look${suspectLearners.length===1?'s':''} like test account${suspectLearners.length!==1?'s':''} (${names}) — review before saving.`);
+      }
 
       // Link attendance/EISA rows to programmes the same way learners are linked
       const linkToProg=(row)=>{
