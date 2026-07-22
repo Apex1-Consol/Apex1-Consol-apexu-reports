@@ -7952,13 +7952,27 @@ function previewImport(input){
         }
       }
       if(!wbQualificationFallback&&file&&file.name){
-        // Strip extension, a leading "progress_<id>_" export-tool prefix, and a trailing
-        // "_csv_21_July_2026"-style export-date suffix, leaving just the qualification name.
-        let base=file.name.replace(/\.(xlsx|xls|csv)$/i,'')
-          .replace(/^progress[_-]?\d*[_-]?/i,'')
-          .replace(/[_-]?csv[_-]?\d{1,2}[_-][a-z]+[_-]\d{4}$/i,'')
-          .replace(/[_-]?\d{1,2}[_-][a-z]+[_-]\d{4}$/i,'');
-        base=base.replace(/[_-]+/g,' ').trim();
+        // Strip extension, then work token-by-token rather than by exact separator —
+        // real export filenames mix ".", "_", "-" and even literal spaces inconsistently
+        // (e.g. "progress.59201_...-sahl.csv 21 July 2026.xlsx"), so a single regex tied
+        // to one separator character silently leaves fragments like ".csv 21 July 2026"
+        // behind. Normalise every separator to a space, then drop a leading
+        // "progress <id>" export-tool prefix and a trailing "csv <day> <month> <year>"
+        // export-date suffix by matching whole tokens instead.
+        const MONTHS=/^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i;
+        let tokens=file.name.replace(/\.(xlsx|xls|csv)$/i,'').replace(/[._-]+/g,' ').trim().split(/\s+/).filter(Boolean);
+        if(tokens[0]&&/^progress$/i.test(tokens[0]))tokens.shift();
+        if(tokens[0]&&/^\d+$/.test(tokens[0]))tokens.shift();
+        let changed=true;
+        while(changed&&tokens.length){
+          changed=false;
+          if(/^csv$/i.test(tokens[tokens.length-1])){tokens.pop();changed=true;continue;}
+          if(tokens.length>=3){
+            const[a,b,c]=tokens.slice(-3);
+            if(/^\d{1,2}$/.test(a)&&MONTHS.test(b)&&/^\d{4}$/.test(c)){tokens.splice(-3,3);changed=true;continue;}
+          }
+        }
+        const base=tokens.join(' ').trim();
         if(base)wbQualificationFallback=base.replace(/\b\w/g,c=>c.toUpperCase());
       }
 
