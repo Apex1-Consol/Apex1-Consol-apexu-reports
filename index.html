@@ -6941,7 +6941,7 @@ function openImportLmsModal(){
       Learners are matched by email (falling back to name). This is separate from — and won't affect — Import Excel.
       ${activeProgramme?(isLegacyProgramme(activeProgramme)
         ?'<br><span style="color:var(--gold2)">This programme is set to Legacy — module results can\'t be inferred from an LMS export, so this will only match/create learners.</span>'
-        :'<br>Module 1–4 Summative Assessment and Workbook activities will fill in blank KM/WM results. Anything already captured is left untouched.')
+        :'<br>Blank KM/WM results will be filled in based on the Summative Assessment and Workbook columns found in your file (exact module coverage is shown once you select a file). Anything already captured is left untouched.')
         :'<br><span style="color:var(--gold2)">Select a client and programme first so imported results land in the right place.</span>'}
     </div>
     <div class="modal-field">
@@ -6980,6 +6980,21 @@ function classifyLmsActivity(name){
   else if(/learner guide/.test(lower))kind='guide';
   else if(/handout/.test(lower))kind='handout';
   return{modNum,kind};
+}
+// Turns a list of module numbers into a compact range label ("1–4" instead of
+// "1, 2, 3, 4") for the LMS-import coverage summary shown in the preview below.
+function modRangeLabel(nums){
+  if(!nums||!nums.length)return'none';
+  const s=[...new Set(nums)].sort((a,b)=>a-b);
+  const parts=[];
+  let start=s[0],prev=s[0];
+  for(let i=1;i<s.length;i++){
+    if(s[i]===prev+1){prev=s[i];continue;}
+    parts.push(start===prev?`${start}`:`${start}–${prev}`);
+    start=s[i];prev=s[i];
+  }
+  parts.push(start===prev?`${start}`:`${start}–${prev}`);
+  return parts.join(', ');
 }
 // 'pass'/'fail' only apply to graded activities ("Completed (achieved/did not achieve
 // pass grade)"); plain "Completed" (no grade component, e.g. a workbook submission or
@@ -7044,6 +7059,15 @@ function previewImportLms(input){
       const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
       if(rows.length<2){modalErr('Sheet looks empty.');return;}
       const parsed=parseLmsSheetRows(rows[0],rows.slice(1));
+      const summativeMods=[],workbookMods=[];
+      rows[0].forEach(h=>{
+        const hname=normCell(h);
+        if(!hname)return;
+        const{modNum:hModNum,kind:hKind}=classifyLmsActivity(hname);
+        if(!hModNum)return;
+        if(hKind==='summative')summativeMods.push(hModNum);
+        else if(hKind==='workbook')workbookMods.push(hModNum);
+      });
       if(!parsed){
         modalErr('This doesn\'t look like an LMS progress export (expected a blank first-column header with an Email address column). Use Import Excel for other file types.');
         return;
@@ -7072,6 +7096,7 @@ function previewImportLms(input){
           <strong style="color:#fff">${parsed.length}</strong> learner rows found in the file.<br>
           <strong style="color:#34d399">${matched}</strong> matched to existing learners.
           ${!legacy&&activeProgramme?` <strong style="color:var(--gold2)">${willFill}</strong> blank module result${willFill===1?'':'s'} will be filled in.`:''}<br>
+          ${!legacy&&activeProgramme?`<span style="font-size:8pt;color:rgba(255,255,255,.45)">Summative Assessment found for Module ${modRangeLabel(summativeMods)} · Workbook activity found for Module ${modRangeLabel(workbookMods)} — only those modules get KM/WM filled in.</span><br>`:''}
           ${unmatched?`<strong style="color:#f87171">${unmatched}</strong> unmatched (no email/name match) — won't be imported unless you tick below.<div style="font-size:8pt;color:rgba(255,255,255,.4);margin-top:4px">${unmatchedNames.slice(0,10).join(', ')}${unmatchedNames.length>10?'…':''}</div>`:''}
         </div>
         ${unmatched?`<div class="modal-field" style="margin-top:10px;display:flex;align-items:center;gap:10px">
