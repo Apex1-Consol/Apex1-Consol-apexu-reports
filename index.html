@@ -6965,7 +6965,11 @@ function openImportLmsModal(){
 // pipeline) — different data shape, different destination (eisa module results,
 // not programmes/attendance). Nothing here is read or written by the Excel importer.
 function classifyLmsActivity(name){
-  const mm=name.match(/module\s*(\d+)/i);
+  // Matches "Module 2", "Mod 2", "Mod2", "M2", "M.2" — real LMS exports abbreviate
+  // module numbers inconsistently (e.g. a workbook column titled "...Workbook M2"
+  // instead of "...Workbook Module 2"), and the old strict /module\s*(\d+)/ regex
+  // silently dropped any activity whose column name didn't spell "module" out in full.
+  const mm=name.match(/\bm(?:od(?:ule)?)?\.?\s*(\d+)\b/i);
   const modNum=mm?+mm[1]:null;
   const lower=name.toLowerCase();
   let kind=null;
