@@ -6511,7 +6511,11 @@ function _checklistBlocksFinalize(){
     el.style.background='rgba(200,39,44,.18)';
     setTimeout(()=>el.style.background='',900);
   });
-  toast('Finish the "Report Content" checklist (attendance, EISA, comments, narratives) first.','warn');
+  const missing=window._checklistIncompleteLabels;
+  const msg=(missing&&missing.length)
+    ?`Still needed before finalizing: ${missing.join(', ')}.`
+    :'Finish the "Report Content" checklist first.';
+  toast(msg,'warn',5000);
   return true;
 }
 
@@ -13470,6 +13474,7 @@ function _updateProgressPanel(){
   const doneCount=items.filter(i=>i.state==='done').length;
   const total=items.length;
   const allComplete=doneCount===total&&total>0;
+  window._checklistIncompleteLabels=items.filter(i=>i.state!=='done').map(i=>i.label);
 
   score.textContent=`${doneCount}/${total}`;
   score.className=allComplete?'complete':doneCount>0?'partial':'';
