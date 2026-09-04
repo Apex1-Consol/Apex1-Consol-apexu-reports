@@ -4403,19 +4403,19 @@ function buildExecSummaryPage(prog,client,pLearners,pn){
           </div>`:`<div style="font-size:10px;color:#94A3B8">No risk flags raised for this reporting period.</div>`}
         </div>
       </div>
+      ${legacy?`
       <div class="exec-visual-row" style="display:grid;grid-template-columns:118px 1fr;gap:16px;margin-top:18px;padding-top:16px;border-top:1px solid #F1F5F9">
         <div style="text-align:center;padding-top:2px">
           <svg viewBox="0 0 120 120" width="90" height="90" style="margin:0 auto;display:block">
             <circle cx="60" cy="60" r="50" fill="none" stroke="#F1F5F9" stroke-width="10"/>
-            ${(legacy?usPct:eisaCompletedPct)!==null?`<circle cx="60" cy="60" r="50" fill="none" stroke="${(legacy?usPct:eisaCompletedPct)>=80?'#1B7A4A':(legacy?usPct:eisaCompletedPct)>=50?'#CC6B00':'#C8272C'}" stroke-width="10" stroke-linecap="round" stroke-dasharray="${((legacy?usPct:eisaCompletedPct)/100*CIRC).toFixed(1)} ${CIRC.toFixed(1)}" transform="rotate(-90 60 60)"/>`:''}
-            <text x="60" y="57" text-anchor="middle" font-size="25" font-weight="800" fill="#1E2533" font-family="DM Sans">${(legacy?usPct:eisaCompletedPct)!==null?(legacy?usPct:eisaCompletedPct)+'%':'—'}</text>
-            <text x="60" y="73" text-anchor="middle" font-size="${legacy?6.5:7.5}" fill="#94A3B8" font-family="DM Sans" letter-spacing="0.5">${legacy?'UNIT STANDARDS':'EISA'}</text>
+            ${usPct!==null?`<circle cx="60" cy="60" r="50" fill="none" stroke="${usPct>=80?'#1B7A4A':usPct>=50?'#CC6B00':'#C8272C'}" stroke-width="10" stroke-linecap="round" stroke-dasharray="${(usPct/100*CIRC).toFixed(1)} ${CIRC.toFixed(1)}" transform="rotate(-90 60 60)"/>`:''}
+            <text x="60" y="57" text-anchor="middle" font-size="25" font-weight="800" fill="#1E2533" font-family="DM Sans">${usPct!==null?usPct+'%':'—'}</text>
+            <text x="60" y="73" text-anchor="middle" font-size="6.5" fill="#94A3B8" font-family="DM Sans" letter-spacing="0.5">UNIT STANDARDS</text>
           </svg>
-          <div style="font-size:8px;color:#94A3B8;margin-top:6px">${legacy?'credits achieved':'completed'}</div>
+          <div style="font-size:8px;color:#94A3B8;margin-top:6px">credits achieved</div>
         </div>
         <div style="border-left:1px solid #F1F5F9;padding-left:16px">
-          <div style="font-size:8.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#94A3B8;margin-bottom:11px">${legacy?'Unit Standards progress':'EISA progress'}</div>
-          ${legacy?`
+          <div style="font-size:8.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#94A3B8;margin-bottom:11px">Unit Standards progress</div>
           <div style="display:flex;flex-direction:column;gap:10px">
             <div>
               <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
@@ -4425,31 +4425,59 @@ function buildExecSummaryPage(prog,client,pLearners,pn){
               <div style="height:5px;border-radius:3px;background:#F1F5F9;overflow:hidden"><div style="height:100%;width:${usPct||0}%;background:#0F6B6B;border-radius:3px"></div></div>
             </div>
             ${!usTotalCredits?`<div style="font-size:9px;color:#94A3B8">No unit standards registered for this programme yet.</div>`:''}
-          </div>`:`
-          <div style="display:flex;flex-direction:column;gap:10px">
-            <div>
-              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
-                <span style="font-size:10.5px;color:#1E2533;font-weight:600">EISA Booked</span>
-                <span style="display:flex;align-items:center;gap:5px">
-                  <span id="eisa-booked-count" style="font-size:9px;color:#1A365D;font-weight:700">${eisaBookedCount} of ${nCount}</span>
-                  <input type="number" min="0" max="${nCount}" value="${eisaBookedCount}" class="no-print"
-                    style="width:38px;padding:1px 3px;font-size:8pt;border:1px solid #E2E8F0;border-radius:4px;text-align:center"
-                    title="Enter number of learners booked for EISA"
-                    onblur="saveEisaBooked(this,${nCount})" onkeydown="if(event.key==='Enter')this.blur()">
-                </span>
-              </div>
-              <div style="height:5px;border-radius:3px;background:#F1F5F9;overflow:hidden"><div id="eisa-booked-bar" style="height:100%;width:${eisaBookedPct}%;background:#1A365D;border-radius:3px"></div></div>
-            </div>
-            <div>
-              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
-                <span style="font-size:10.5px;color:#1E2533;font-weight:600">EISA Completed</span>
-                <span style="font-size:9px;color:#0F6B6B;font-weight:700">${eisaCompletedCount} of ${nCount}</span>
-              </div>
-              <div style="height:5px;border-radius:3px;background:#F1F5F9;overflow:hidden"><div style="height:100%;width:${eisaCompletedPct||0}%;background:#0F6B6B;border-radius:3px"></div></div>
-            </div>
-          </div>`}
+          </div>
         </div>
-      </div>
+      </div>`:(()=>{
+        // EISA completion is a late-programme milestone — showing a bare "0%"
+        // every month before the final module even ends misreads as a red flag
+        // when nothing is actually wrong yet. eisaDue mirrors the module-timeline
+        // status logic above: only once the last dated module is 'done' do we
+        // treat EISA as due, and the status chip reflects that instead of a
+        // single completion percentage dominating the widget (which also buried
+        // the fact that Booking — the PM's actual task — is usually already 100%).
+        const lastMod=timelineMods[timelineMods.length-1];
+        const eisaDue=!!lastMod&&lastMod.status==='done';
+        const chip=!eisaDue
+          ?{label:'Not yet due',bg:'#FAEEDA',fg:'#633806'}
+          :eisaCompletedCount<nCount
+          ?{label:'Needs follow-up',bg:'#FBE3E3',fg:'#8C1616'}
+          :{label:'Complete',bg:'#EAF3DE',fg:'#27500A'};
+        return`
+      <div class="exec-visual-row" style="margin-top:18px;padding-top:16px;border-top:1px solid #F1F5F9">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+          <div style="font-size:8.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#94A3B8">EISA progress</div>
+          <span style="font-size:8px;font-weight:700;padding:3px 10px;border-radius:999px;background:${chip.bg};color:${chip.fg}">${chip.label}</span>
+        </div>
+        <div style="display:flex;align-items:flex-start">
+          <div style="flex:1;text-align:center">
+            <div style="font-size:22px;font-weight:800;color:#1E2533">${nCount}</div>
+            <div style="font-size:8px;letter-spacing:.08em;text-transform:uppercase;color:#94A3B8;margin-top:3px">Enrolled</div>
+          </div>
+          <div style="width:28px;height:2px;background:#CBD5E1;margin-top:11px;flex-shrink:0"></div>
+          <div style="flex:1;text-align:center">
+            <div style="font-size:22px;font-weight:800;color:#1A365D">${eisaBookedCount}</div>
+            <div style="font-size:8px;letter-spacing:.08em;text-transform:uppercase;color:#94A3B8;margin-top:3px">Booked</div>
+          </div>
+          <div style="width:28px;height:2px;background:${eisaCompletedCount>0?'#0F6B6B':'#CBD5E1'};margin-top:11px;flex-shrink:0"></div>
+          <div style="flex:1;text-align:center">
+            <div style="font-size:22px;font-weight:800;color:${eisaCompletedCount>0?'#0F6B6B':'#94A3B8'}">${eisaCompletedCount}</div>
+            <div style="font-size:8px;letter-spacing:.08em;text-transform:uppercase;color:#94A3B8;margin-top:3px">Completed</div>
+          </div>
+        </div>
+        <div style="margin-top:14px;height:6px;border-radius:3px;background:#F1F5F9;overflow:hidden;position:relative">
+          <div id="eisa-booked-bar" style="position:absolute;inset:0;height:100%;width:${eisaBookedPct}%;background:#1A365D;border-radius:3px"></div>
+          <div style="position:absolute;inset:0;height:100%;width:${eisaCompletedPct||0}%;background:#0F6B6B;border-radius:3px"></div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;align-items:center;gap:5px;margin-top:8px">
+          <span style="font-size:8px;color:#94A3B8">Adjust booked</span>
+          <input type="number" min="0" max="${nCount}" value="${eisaBookedCount}" class="no-print"
+            style="width:38px;padding:1px 3px;font-size:8pt;border:1px solid #E2E8F0;border-radius:4px;text-align:center"
+            title="Enter number of learners booked for EISA"
+            onblur="saveEisaBooked(this,${nCount})" onkeydown="if(event.key==='Enter')this.blur()">
+          <span id="eisa-booked-count" style="font-size:8px;color:#B5BEC9">${eisaBookedCount} of ${nCount}</span>
+        </div>
+      </div>`;
+      })()}
       <div class="exec-headline" style="margin-top:20px;padding:18px 22px;background:linear-gradient(90deg,${p.gradFrom}12,transparent);border-left:4px solid ${p.accentFrom};border-radius:0 8px 8px 0">
         <div style="font-size:8pt;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:${p.gradMid};margin-bottom:6px">Headline</div>
         <div style="font-size:10pt;color:#333;line-height:1.6">${esc(headline)}</div>
