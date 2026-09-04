@@ -4109,7 +4109,7 @@ function computeCoverStats(pLearners,prog){
   });
   const avgAtt=attCount>0?Math.round(attSum/attCount):null;
   const modNums=[...new Set(unitStandards.filter(u=>!u.saqa_id||u.saqa_id===prog.saqa_id).map(u=>u.mod||1))];
-  let flagged=0;
+  let flaggedModules=0;const flaggedLearnerIds=new Set();
   const legacy=isLegacyProgramme(prog);
   if(legacy){
     // Legacy: a "module" (unit-standard grouping) is flagged if any learner has
@@ -4125,10 +4125,10 @@ function computeCoverStats(pLearners,prog){
       pLearners.forEach(l=>{
         units.forEach(u=>{
           const ov=narratives._eisa||{};
-          if(ov[usFormativeKey(l.id,u.id)]==='NYC'||ov[usSummativeKey(l.id,u.id)]==='NYC')anyNYC=true;
+          if(ov[usFormativeKey(l.id,u.id)]==='NYC'||ov[usSummativeKey(l.id,u.id)]==='NYC'){anyNYC=true;flaggedLearnerIds.add(l.id);}
         });
       });
-      if(anyNYC)flagged++;
+      if(anyNYC)flaggedModules++;
     });
   } else {
     modNums.forEach(m=>{
@@ -4139,12 +4139,12 @@ function computeCoverStats(pLearners,prog){
         const ov=narratives._eisa||{};
         const mv=(f,v)=>ov[`${ek}_${f}`]!==undefined?ov[`${ek}_${f}`]:(v||'');
         const vals=[mv('km',res.km),mv('pm',res.pm),mv('wm',res.wm),mv('examv1',res.examv1),mv('examv2',res.examv2)].filter(v=>v);
-        if(vals.some(v=>v==='NYC'))anyNYC=true;
+        if(vals.some(v=>v==='NYC')){anyNYC=true;flaggedLearnerIds.add(l.id);}
       });
-      if(anyNYC)flagged++;
+      if(anyNYC)flaggedModules++;
     });
   }
-  return{avgAtt,flagged,onTrack:Math.max(0,totalMods-flagged),totalMods};
+  return{avgAtt,flaggedLearners:flaggedLearnerIds.size,flaggedModules,onTrack:Math.max(0,totalMods-flaggedModules),totalMods};
 }
 
 function buildCoverPage(prog,client,month){
@@ -4202,7 +4202,7 @@ function buildCoverPage(prog,client,month){
               <div class="cover-stat-label">Modules On Track</div>
             </div>
             <div class="cover-stat" style="background:${p.gradFrom}0C">
-              <div class="cover-stat-num" style="color:${p.gradFrom}">${stats.flagged}</div>
+              <div class="cover-stat-num" style="color:${p.gradFrom}">${stats.flaggedLearners}</div>
               <div class="cover-stat-label">Flagged NYC</div>
             </div>
           </div>
