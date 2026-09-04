@@ -223,7 +223,7 @@ body{font-family:var(--font);background:#0B1220;color:var(--dark);min-height:100
   display:grid;grid-template-columns:1fr 1fr;gap:16px 32px;
 }
 .cover-field label{font-size:7.5pt;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:4px}
-.cover-field span{font-size:10.5pt;font-weight:600;color:var(--dark)}
+.cover-field span{font-size:10.5pt;font-weight:600;color:var(--dark)}.cover-field.full{grid-column:1/-1}
 .cover-footer{
   padding:20px 48px;
   display:flex;align-items:center;justify-content:space-between;
@@ -4213,7 +4213,7 @@ function buildCoverPage(prog,client,month){
           <div class="cover-field"><label>Contact Number</label><span>${esc(client.contact_number||'—')}</span></div>
           <div class="cover-field"><label>Facilitator</label><span>${esc(facilitator)}</span></div>
           <div class="cover-field"><label>Group</label><span>${esc(prog.group_name||'One Group')}</span></div>
-          <div class="cover-field"><label>No. of Delegates</label><span>${pLearners.length} Learners</span></div>
+          <div class="cover-field"><label>No. of Delegates</label><span>${pLearners.length} Learners</span></div><div class="cover-field" data-edit="client" style="cursor:pointer" title="Click to edit client"><label>Sales Person</label><span>${esc(client.sales_person||'—')}</span></div><div class="cover-field" data-edit="client" style="cursor:pointer" title="Click to edit client"><label>Project Manager</label><span>${esc(client.project_manager||'—')}</span></div><div class="cover-field full" data-edit="programme" style="cursor:pointer" title="Click to edit programme"><label>Programme</label><span>SAQA ID: ${esc(prog.saqa_id||'—')} (${esc(prog.qualification_code||'—')}) – ${esc(prog.programme_name||'—')}</span></div>
         </div>
       </div>
     </div>
@@ -4677,14 +4677,14 @@ function buildOverviewPage(prog,client,pLearners,pn=2){
   });
   let body=`
     <div class="sec-header"><div class="sec-accent" style="background:${p.accentFrom}"></div>
-      <div><div class="sec-title">Programme Overview</div><div style="height:3px;width:44px;border-radius:2px;background:linear-gradient(90deg,${p.accentFrom},${p.accentTo});margin:5px 0"></div><div class="sec-subtitle">Client details, module schedule and overall feedback</div></div>
+      <div><div class="sec-title">Programme Overview</div><div style="height:3px;width:44px;border-radius:2px;background:linear-gradient(90deg,${p.accentFrom},${p.accentTo});margin:5px 0"></div><div class="sec-subtitle">Module schedule and overall feedback</div></div>
     </div>
-    <div class="info-grid">
-      <div class="info-card${!client.client_name?' needs-input':''}" data-edit="client" style="cursor:pointer;border-left-color:${p.accentFrom};background:linear-gradient(${p.accentFrom}0d,${p.accentFrom}0d)" title="Click to edit client"><label>Client Name</label><span>${esc(client.client_name||'Not set')}</span></div>
-      <div class="info-card${(!client.contact_person&&!client.contact_number)?' needs-input':''}" data-edit="client" style="cursor:pointer;border-left-color:${p.accentFrom};background:linear-gradient(${p.accentFrom}0d,${p.accentFrom}0d)" title="Click to edit client"><label>Contact Person</label><span>${esc(client.contact_person||'Not set')} &nbsp;·&nbsp; ${esc(client.contact_number||'—')}</span></div>
-      <div class="info-card${!client.sales_person?' needs-input':''}" data-edit="client" style="cursor:pointer;border-left-color:${p.accentFrom};background:linear-gradient(${p.accentFrom}0d,${p.accentFrom}0d)" title="Click to edit client"><label>Sales Person</label><span>${esc(client.sales_person||'Not set')}</span></div>
-      <div class="info-card${!client.project_manager?' needs-input':''}" data-edit="client" style="cursor:pointer;border-left-color:${p.accentFrom};background:linear-gradient(${p.accentFrom}0d,${p.accentFrom}0d)" title="Click to edit client"><label>Project Manager</label><span>${esc(client.project_manager||'Not set')}</span></div>
-      <div class="info-card full${(!prog.saqa_id||!prog.qualification_code)?' needs-input':''}" data-edit="programme" style="cursor:pointer;border-left-color:${p.accentFrom};background:linear-gradient(${p.accentFrom}0d,${p.accentFrom}0d)" title="Click to edit programme"><label>Programme</label><span>SAQA ID: ${esc(prog.saqa_id||'Not set')} (${esc(prog.qualification_code||'—')}) – ${esc(prog.programme_name||'Not set')}</span></div>
+    <div class="info-grid" style="margin-bottom:0">
+      
+      
+      
+      
+      
     </div>
     <div class="mod-connector no-print">${mods.map((m,i)=>{
       const c=hexMix(p.accentFrom,p.accentTo,i/(mods.length-1));
@@ -12647,7 +12647,7 @@ async function checkAdminFeedback(){
 // ── Delegated click handler for report-page info-cards ──
 // onclick attrs inside innerHTML don't fire; use event delegation instead
 document.addEventListener('click', function(e){
-  const card = e.target.closest('.info-card[data-edit]');
+  const card = e.target.closest('.info-card[data-edit], .cover-field[data-edit]');
   if(!card) return;
   const target = card.dataset.edit;
   if(target === 'client') openModal('client','edit');
