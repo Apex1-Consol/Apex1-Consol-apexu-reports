@@ -3942,17 +3942,23 @@ function isLearnerTerminated(learnerId){
   const e=_findEnrolment(learnerId);
   return!!e&&e.status==='terminated';
 }
+function isLearnerResigned(learnerId){
+  const e=_findEnrolment(learnerId);
+  return!!e&&e.status==='resigned';
+}
 function getLearnerTerminatedModule(learnerId){
   const e=_findEnrolment(learnerId);
   const m=e&&e.fields&&e.fields.terminated_module;
   return m?+m:null;
 }
-async function setLearnerTermination(learnerId,terminated,moduleNum){
+async function setLearnerTermination(learnerId,status,moduleNum){
   const e=_findEnrolment(learnerId);
   if(!e)return;
-  e.status=terminated?'terminated':'active';
+  // status: 'active' | 'terminated' | 'resigned'. Back-compat: a boolean true
+  // (old callers) means 'terminated'.
+  e.status=status===true?'terminated':(status||'active');
   e.fields={...(e.fields||{})};
-  if(terminated)e.fields.terminated_module=moduleNum?+moduleNum:null;
+  if(e.status==='terminated'||e.status==='resigned')e.fields.terminated_module=moduleNum?+moduleNum:null;
   else delete e.fields.terminated_module;
   const payload={status:e.status,fields:e.fields};
   if(isOnline&&!isTempId(e.id)){
@@ -4909,18 +4915,22 @@ function buildCohortSummary(pLearners){
 function buildLearnerStatusBlock(pLearners,p){
   const modNums=activeProgramme?displayModuleNums(activeProgramme):[1,2,3,4];
   const terminated=pLearners.filter(l=>isLearnerTerminated(l.id));
-  const active=pLearners.filter(l=>!isLearnerTerminated(l.id));
+  const resigned=pLearners.filter(l=>isLearnerResigned(l.id));
+  const active=pLearners.filter(l=>!isLearnerTerminated(l.id)&&!isLearnerResigned(l.id));
   const rows=[...pLearners].sort((a,b)=>(a.last_name||'').localeCompare(b.last_name||'')).map(l=>{
     const isTerm=isLearnerTerminated(l.id);
+    const isRes=isLearnerResigned(l.id);
+    const status=isTerm?'terminated':isRes?'resigned':'active';
     const termMod=getLearnerTerminatedModule(l.id);
     const modOptions=modNums.map(n=>`<option value="${n}" ${termMod===n?'selected':''}>Module ${n}</option>`).join('');
     return`<div class="no-print" style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #F1F5F9">
       <span style="flex:1;font-size:9pt;color:#1E2533">${esc(l.first_name)} ${esc(l.last_name)}</span>
-      <select style="font-size:8pt;padding:2px 6px;border:1px solid #E2E8F0;border-radius:4px" onchange="setLearnerTermination(${JSON.stringify(String(l.id))},this.value==='terminated',document.getElementById('term-mod-${l.id}')?document.getElementById('term-mod-${l.id}').value:null);_lsRefreshModSelect(this)">
-        <option value="active" ${!isTerm?'selected':''}>Active</option>
-        <option value="terminated" ${isTerm?'selected':''}>Terminated</option>
+      <select style="font-size:8pt;padding:2px 6px;border:1px solid #E2E8F0;border-radius:4px" onchange="setLearnerTermination(${JSON.stringify(String(l.id))},this.value,document.getElementById('term-mod-${l.id}')?document.getElementById('term-mod-${l.id}').value:null);_lsRefreshModSelect(this)">
+        <option value="active" ${status==='active'?'selected':''}>Active</option>
+        <option value="terminated" ${status==='terminated'?'selected':''}>Terminated</option>
+        <option value="resigned" ${status==='resigned'?'selected':''}>Resigned</option>
       </select>
-      <select id="term-mod-${l.id}" style="font-size:8pt;padding:2px 6px;border:1px solid #E2E8F0;border-radius:4px;${isTerm?'':'visibility:hidden'}" onchange="setLearnerTermination(${JSON.stringify(String(l.id))},true,this.value)">
+      <select id="term-mod-${l.id}" style="font-size:8pt;padding:2px 6px;border:1px solid #E2E8F0;border-radius:4px;${status==='active'?'visibility:hidden':''}" onchange="setLearnerTermination(${JSON.stringify(String(l.id))},'${status==='resigned'?'resigned':'terminated'}',this.value)">
         ${modOptions}
       </select>
     </div>`;
@@ -4929,13 +4939,18 @@ function buildLearnerStatusBlock(pLearners,p){
     const m=getLearnerTerminatedModule(l.id);
     return`${esc(l.first_name)} ${esc(l.last_name)}${m?` (Module ${m})`:''}`;
   }).join(', ');
+  const resNames=resigned.map(l=>{
+    const m=getLearnerTerminatedModule(l.id);
+    return`${esc(l.first_name)} ${esc(l.last_name)}${m?` (Module ${m})`:''}`;
+  }).join(', ');
   return`<div class="exec-learner-status" style="margin-top:18px;padding-top:16px;border-top:1px solid #F1F5F9">
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
       <div class="cs-card" style="flex:1;min-width:90px"><label>Enrolled</label><div class="cs-big">${pLearners.length}</div></div>
       <div class="cs-card" style="flex:1;min-width:90px"><label>Active</label><div class="cs-big">${active.length}</div></div>
       <div class="cs-card" style="flex:1;min-width:90px"><label>Terminated</label><div class="cs-big">${terminated.length}</div></div>
+      <div class="cs-card" style="flex:1;min-width:90px"><label>Resigned</label><div class="cs-big">${resigned.length}</div></div>
     </div>
-    <div style="font-size:9pt;color:#4A5568;margin-bottom:8px">${terminated.length?`Terminated: ${termNames}.`:'No learners terminated this period.'}</div>
+    <div style="font-size:9pt;color:#4A5568;margin-bottom:8px">${terminated.length?`Terminated: ${termNames}.`:'No learners terminated this period.'} ${resigned.length?`Resigned: ${resNames}.`:''}</div>
     <div class="no-print" style="font-size:8pt;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#94A3B8;margin-bottom:4px">Learner Status <span style="font-weight:400;text-transform:none;letter-spacing:normal;color:#B5BEC9">(screen only — editable)</span></div>
     <div class="no-print" style="max-height:220px;overflow-y:auto">${rows}</div>
   </div>`;
@@ -4943,7 +4958,7 @@ function buildLearnerStatusBlock(pLearners,p){
 function _lsRefreshModSelect(sel){
   const row=sel.closest('div');
   const modSel=row?row.querySelector('select[id^="term-mod-"]'):null;
-  if(modSel)modSel.style.visibility=sel.value==='terminated'?'visible':'hidden';
+  if(modSel)modSel.style.visibility=(sel.value==='terminated'||sel.value==='resigned')?'visible':'hidden';
 }
 
 function hexMix(a,b,t){
