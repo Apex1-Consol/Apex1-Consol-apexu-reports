@@ -6062,6 +6062,8 @@ function getModuleTrainingStatus(modNum){
     if(modStarted&&!modComplete)anyProgress=true;
   });
   if(allTrained)return'trained';
+  const range=(typeof parseModDateRange==='function')?parseModDateRange(activeProgramme&&activeProgramme['module_'+modNum+'_dates']):null;
+  if(range&&range.end&&range.end<new Date())return'completed';
   if(anyProgress)return'progress';
   return'nyt';
 }
@@ -6100,6 +6102,8 @@ function buildUnitsTable(prog){
     const st=modStatus[u.mod]||'nyt';
     const status=st==='trained'
       ?`<span class="unit-status unit-complete">Trained</span>`
+      :st==='completed'
+      ?`<span class="unit-status unit-complete">Completed</span>`
       :st==='progress'
       ?`<span class="unit-status unit-pending">In Progress</span>`
       :`<span class="unit-status unit-nyt">Not Yet Trained</span>`;
