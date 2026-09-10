@@ -4292,6 +4292,7 @@ function generateReport(skipChecklistGate){
     pages.appendChild(notesEl);
     pages.appendChild(buildSignoffPage(prog,client,month,narratives,++pn));
     initSignaturePad();
+    autoGrowAllNar(pages);
   });
 
   // Restore saved values
@@ -4334,6 +4335,9 @@ function generateReport(skipChecklistGate){
       if(el){el.textContent=val;applyAttStyle(el,val);}
     });
   }
+
+  // Size every narrative textarea to its actual content.
+  autoGrowAllNar(pages);
 
   // Scroll to preview
   document.getElementById('report-preview').scrollIntoView({behavior:'smooth'});
@@ -6330,6 +6334,16 @@ function setNoClasses(checked){
   updateProgressPanel();
 }
 
+// Auto-grow a narrative textarea to fit its content.
+function autoGrowNar(ta){
+  if(!ta)return;
+  ta.style.height='auto';
+  ta.style.height=(ta.scrollHeight+2)+'px';
+}
+function autoGrowAllNar(root){
+  (root||document).querySelectorAll('.narrative-textarea').forEach(autoGrowNar);
+}
+
 // Dual-render sync functions
 function syncNar(ta){
   const key=ta.dataset.nar;
@@ -6946,6 +6960,7 @@ function syncCommentToSupabase(lid,comment){
   },1000);
 }
 function onCommentInput(ta){
+  autoGrowNar(ta);
   ta.classList.remove('comment-default');
   // Check if value now matches the default (re-badge)
   const bulkVal=document.getElementById('bulk-comment-text')?.value?.trim()||'';
@@ -6995,6 +7010,7 @@ function applyBulkComment(overwrite=false){
       // was edited afterward.
       narratives._comments[lid]=personalised;
       syncCommentToSupabase(lid, personalised);
+      autoGrowNar(ta);
     }
   });
   autoSave();
