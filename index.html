@@ -6350,6 +6350,7 @@ function syncNar(ta){
   const printEl=document.querySelector(`[data-nar-print="${key}"]`);
   if(printEl)printEl.textContent=ta.value;
   narratives[key]=ta.value;
+  autoGrowNar(ta);
   autoSave();
 }
 
