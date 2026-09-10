@@ -5721,10 +5721,10 @@ function buildAssessmentPage(pLearners,modNum,nar,pn){
       return`<div style="text-align:center"><select class="result-select result-screen" data-eisa="${ek}_${field}" onchange="syncResult(this)">${resultOptions(v)}</select><span class="result-print badge ${bc}">${v||'&#8212;'}</span></div>`;
     };
     const mkExam=(field,pctField,val,pct)=>{
-      const v=mkVal(field,val);const p=mkVal(pctField,pct);
+      const v=mkVal(field,val);
       const bc=v==='C'?'badge-c':isEisaOutstanding(v)?'badge-nyc':'badge-na';
-      const pt=v?(p?v+' / '+p+'%':v):'&#8212;';
-      return`<div style="text-align:center"><div class="exam-screen" style="display:flex;flex-direction:column;align-items:center;gap:2px"><select class="result-select" data-eisa="${ek}_${field}" onchange="syncResult(this)">${resultOptions(v)}<option value="N/A" ${v==='N/A'?'selected':''}>N/A</option></select><input class="exam-input" type="text" placeholder="%" data-eisa="${ek}_${pctField}" value="${p}" oninput="syncExamPct(this)" maxlength="6"></div><span class="exam-print badge ${v?bc:'badge-na'}" data-eisa-print="${ek}_${field}">${pt}</span></div>`;
+      const pt=v||'&#8212;';
+      return`<div style="text-align:center"><div class="exam-screen" style="display:flex;flex-direction:column;align-items:center;gap:2px"><select class="result-select" data-eisa="${ek}_${field}" onchange="syncResult(this)">${resultOptions(v)}<option value="N/A" ${v==='N/A'?'selected':''}>N/A</option></select></div><span class="exam-print badge ${v?bc:'badge-na'}" data-eisa-print="${ek}_${field}">${pt}</span></div>`;
     };
     const km=mkVal('km',res.km),pm=mkVal('pm',res.pm),wm=mkVal('wm',res.wm),ev1=mkVal('examv1',res.examv1),ev2=mkVal('examv2',res.examv2);
     const requiredVals=[...(applies.km?[km]:[]),...(applies.pm?[pm]:[]),...(applies.wm?[wm]:[])];
@@ -7075,12 +7075,12 @@ function syncEisaToSupabase(changedEl){
 
 function bulkSetExam(modNum,field,value){
   const label=field==='examv1'?'Exam V1':'Exam V2';
-  const pct=prompt(`Set ${label} result for ALL learners in Module ${modNum} to "${value}".\n\nEnter a % score to apply to everyone too (leave blank to skip and set % individually):`,'');
-  if(pct===null)return;
+  if(!confirm(`Set ${label} result for ALL learners in Module ${modNum} to "${value}"?`))return;
+  
   document.querySelectorAll(`select[data-eisa*="_m${modNum}_${field}"]`).forEach(sel=>{
     sel.value=value;
     syncResult(sel);
-    if(pct!==''){
+    if(false){
       const wrap=sel.closest('.exam-screen');
       const inp=wrap?.querySelector(`input[data-eisa*="_m${modNum}_${field}_pct"]`);
       if(inp){inp.value=pct;syncExamPct(inp);}
@@ -7096,7 +7096,7 @@ function bulkSetModuleResults(modNum,value){
   });
 }
 function bulkClearModule(modNum){
-  if(!confirm(`Clear ALL results (KM/PM/WM/Exam V1/Exam V2 + %) for every learner in Module ${modNum}? This cannot be undone.`))return;
+  if(!confirm(`Clear ALL results (KM/PM/WM/Exam V1/Exam V2) for every learner in Module ${modNum}? This cannot be undone.`))return;
   document.querySelectorAll(`select[data-eisa*="_m${modNum}_km"],select[data-eisa*="_m${modNum}_pm"],select[data-eisa*="_m${modNum}_wm"],select[data-eisa*="_m${modNum}_examv1"],select[data-eisa*="_m${modNum}_examv2"]`).forEach(sel=>{
     sel.value='';
     syncResult(sel);
@@ -7136,10 +7136,10 @@ function syncResult(sel){
   }else if(printSpan&&printSpan.classList.contains('exam-print')){
     const v=sel.value;
     const bc=v==='C'?'badge-c':isEisaOutstanding(v)?'badge-nyc':'badge-na';
-    const pctInp=sel.closest('.exam-screen')?.querySelector('.exam-input');
-    const p=pctInp?pctInp.value:'';
+    
+    
     printSpan.className='exam-print badge '+(v?bc:'badge-na');
-    printSpan.textContent=v?(p?v+' / '+p+'%':v):'—';
+    printSpan.textContent=v||'—';
   }
   if(!narratives._eisa)narratives._eisa={};
   narratives._eisa[sel.dataset.eisa]=sel.value;
@@ -7166,7 +7166,7 @@ function syncExamPct(inp){
       const p=inp.value;
       const bc=v==='C'?'badge-c':isEisaOutstanding(v)?'badge-nyc':'badge-na';
       printSpan.className='result-print badge '+(v?bc:'badge-na');
-      printSpan.textContent=v?(p?v+' / '+p+'%':v):'—';
+      printSpan.textContent=v||'—';
     }
     syncEisaToSupabase(sel);
   }
@@ -13822,7 +13822,7 @@ function _renderLRC(){
       examv1_pct:ov_v('examv1_pct',base.examv1_pct),examv2_pct:ov_v('examv2_pct',base.examv2_pct)
     };
     const mkB=v=>v?`<span class="lrc-badge ${v==='C'?'c':isEisaOutstanding(v)?'nyc':'na'}">${v}</span>`:`<span class="lrc-badge na">—</span>`;
-    const pct=v=>res[v+'_pct']?` <small style="color:var(--muted)">${res[v+'_pct']}%</small>`:'';
+    
     const lrcRowVals=[res.km,res.pm,res.wm,res.examv1,res.examv2];
     const allC=res.km==='C'&&res.pm==='C'&&res.wm==='C'&&res.examv1==='C'&&(res.examv2==='C'||!res.examv2||res.examv2==='N/A');
     // .lrc-badge only defines c/nyc/na variants (no dedicated "pending"
@@ -13832,11 +13832,11 @@ function _renderLRC(){
     const overall=`<span class="lrc-badge ${lrcCls}">${eisaOverallLabel(allC,lrcRowVals)}</span>`;
     return`<tr>
       <td style="border-left:3px solid ${modColors[mod]};padding-left:12px;font-weight:700;color:${modColors[mod]}">${modLabels[mod]}</td>
-      <td style="text-align:center">${mkB(res.km)}${pct('km')}</td>
-      <td style="text-align:center">${mkB(res.pm)}${pct('pm')}</td>
-      <td style="text-align:center">${mkB(res.wm)}${pct('wm')}</td>
-      <td style="text-align:center">${mkB(res.examv1)}${pct('examv1')}</td>
-      <td style="text-align:center">${mkB(res.examv2)}${pct('examv2')}</td>
+      <td style="text-align:center">${mkB(res.km)}</td>
+      <td style="text-align:center">${mkB(res.pm)}</td>
+      <td style="text-align:center">${mkB(res.wm)}</td>
+      <td style="text-align:center">${mkB(res.examv1)}</td>
+      <td style="text-align:center">${mkB(res.examv2)}</td>
       <td style="text-align:center">${overall}</td>
     </tr>`;
   }).join('');
