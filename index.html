@@ -8005,6 +8005,62 @@ async function sbUpsert(table,body){
 let modalType=null; // 'client' | 'programme'
 let modalMode=null; // 'add' | 'edit'
 
+// ── Modal in-progress draft (autosave) ──────────────────────────────────────
+// Protects Add/Edit Client, Add/Edit Programme and Add/Edit Learner forms from
+// being lost if the tab/window closes (crash, accidental close, laptop lid)
+// before the user hits Save. Debounced per-keystroke to localStorage, keyed by
+// which record is open, and restored the next time that same modal is opened.
+// Cleared whenever the modal is closed via Save, Cancel, the × button, or an
+// overlay click — only an unclosed modal (i.e. the tab actually disappeared)
+// leaves a draft behind for restoreModalDraft() to pick back up.
+const MODAL_DRAFT_PREFIX='apex_modaldraft_';
+function modalDraftKey(){
+  if(modalType==='learner'){
+    const lid=document.getElementById('modal-save-btn')?.dataset.learnerId||'new';
+    return`${MODAL_DRAFT_PREFIX}learner_${lid}`;
+  }
+  if(modalType==='client'||modalType==='programme'){
+    const src=modalType==='client'?activeClient:activeProgramme;
+    const id=(modalMode==='edit'&&src)?src.id:'new';
+    return`${MODAL_DRAFT_PREFIX}${modalType}_${id}`;
+  }
+  return null; // 'learners' list modal has no fields worth drafting
+}
+let _modalDraftTimer=null;
+function scheduleModalDraftSave(){
+  clearTimeout(_modalDraftTimer);
+  _modalDraftTimer=setTimeout(saveModalDraftNow,600);
+}
+function saveModalDraftNow(){
+  const key=modalDraftKey();
+  if(!key)return;
+  const data={};
+  document.querySelectorAll('#modal-body .modal-input,#modal-body .modal-select').forEach(el=>{
+    if(el.id&&el.value)data[el.id]=el.value;
+  });
+  try{
+    if(Object.keys(data).length)localStorage.setItem(key,JSON.stringify(data));
+    else localStorage.removeItem(key);
+  }catch{}
+}
+function restoreModalDraft(){
+  const key=modalDraftKey();
+  if(!key)return;
+  let data=null;
+  try{data=JSON.parse(localStorage.getItem(key)||'null');}catch{}
+  if(!data)return;
+  let restoredAny=false;
+  Object.entries(data).forEach(([id,val])=>{
+    const el=document.getElementById(id);
+    if(el&&!el.value&&val){el.value=val;restoredAny=true;}
+  });
+  if(restoredAny)toast('↺ Restored an unsaved draft of this form','warn',3500);
+}
+function clearModalDraft(){
+  const key=modalDraftKey();
+  if(key){try{localStorage.removeItem(key);}catch{}}
+}
+
 function openModal(type,mode,learnerId){
   modalType=type;modalMode=mode;
 
@@ -8058,6 +8114,7 @@ function openModal(type,mode,learnerId){
         </div>
       </div>`;
     document.getElementById('modal-overlay').classList.add('open');
+    restoreModalDraft();
     return;
   }
 
@@ -8183,11 +8240,13 @@ function openModal(type,mode,learnerId){
     if(ptSel)ptSel.value=getProgrammeType(isEdit&&src?src.id:null);
   }
   document.getElementById('modal-overlay').classList.add('open');
+  restoreModalDraft();
   // Focus first input
   setTimeout(()=>document.querySelector('#modal-body .modal-input')?.focus(),50);
 }
 
 function closeModal(){
+  clearModalDraft();
   document.getElementById('modal-overlay').classList.remove('open');
   modalType=null;modalMode=null;
   updateStepsGuide();
@@ -12934,6 +12993,10 @@ document.addEventListener('DOMContentLoaded',()=>{
   document.getElementById('login-email')?.addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('login-password')?.focus();});
   document.getElementById('reset-email')?.addEventListener('keydown',e=>{if(e.key==='Enter')_authSendReset();});
   document.getElementById('reset-code')?.addEventListener('keydown',e=>{if(e.key==='Enter')_authVerifyCode();});
+  // Autosave a draft of whatever Add/Edit Client/Programme/Learner form is open,
+  // so it survives an accidental tab close — see modalDraftKey()/restoreModalDraft().
+  document.getElementById('modal-body')?.addEventListener('input',scheduleModalDraftSave);
+  document.getElementById('modal-body')?.addEventListener('change',scheduleModalDraftSave);
 });
 
 // ──────────────────────────────────────────────
