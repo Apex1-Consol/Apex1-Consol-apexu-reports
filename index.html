@@ -9060,7 +9060,7 @@ function detectMoodleBlankNameColumn(headers,dataRows){
 
 // Scan one sheet and return {programmes[], learners[]}
 function scanSheet(sheetName,rows){
-  if(rows.length<2)return{programmes:[],learners:[],attendance:[],eisa:[],units:[]};
+  if(rows.length<2)return{programmes:[],learners:[],attendance:[],eisa:[],units:[],moduleDates:[]};
 
   // ── Legend/guide sheets are pure metadata (SHEET|COLUMN|DESCRIPTION|REQUIRED? style rows)
   // and must never be scanned for programme/learner data. Checked by name only, before header
@@ -9068,7 +9068,7 @@ function scanSheet(sheetName,rows){
   // ('Learner Data','Client Name','Name of the company/client','Yes') as a real header —
   // which then flips isLearnerSheet/hasClient true and defeats a later name-based skip that's
   // conditioned on those flags. This check has no such condition, so it can't be bypassed.
-  if(/^(column guide|guide)/i.test(sheetName.trim()))return{programmes:[],learners:[],attendance:[],eisa:[],units:[]};
+  if(/^(column guide|guide)/i.test(sheetName.trim()))return{programmes:[],learners:[],attendance:[],eisa:[],units:[],moduleDates:[]};
 
   // ── Free-text fallback: some exports state the facilitator/assessor as a single label
   // cell (e.g. "Facilitator: Charles") rather than a proper header/value column pair.
@@ -9168,7 +9168,7 @@ function scanSheet(sheetName,rows){
   }
   const headers=rows[headerIdx].map(h=>normCell(h));
   const dataRows=rows.slice(headerIdx+1).filter(r=>r.some(c=>normCell(c)!==''));
-  if(!dataRows.length)return{programmes:[],learners:[],attendance:[],eisa:[],units:[]};
+  if(!dataRows.length)return{programmes:[],learners:[],attendance:[],eisa:[],units:[],moduleDates:[]};
   if(detectMoodleBlankNameColumn(headers,dataRows)){
     headers[0]='Full Name'; // Moodle export: blank header, but confirmed to hold full names.
     // Must match the pick-list used for extraction (['learner name','full name',...]) below —
@@ -9181,6 +9181,8 @@ function scanSheet(sheetName,rows){
   const attendance=[];
   const eisa=[];
   const units=[];
+  const moduleDatesMap={}; // per-module date range, keyed by `${pkey}||${moduleNumber}` — see the
+                            // "Module date range" block below, near the unit-standard extraction.
   const progSeen=new Set();
   const learnerSeen=new Set();
   const unitSeen=new Set();
@@ -9266,7 +9268,7 @@ function scanSheet(sheetName,rows){
   // sheets are exempt since we now parse those intentionally.
   const skipSheetPatterns=/^(eisa|monitoring|compliance|recommendation|visit|summary|audit|report|log|column guide|guide)/i;
   if(skipSheetPatterns.test(sheetName.trim())&&!isLearnerSheet&&!hasSaqa&&!isAttendanceSheet&&!isEisaSheet&&!isWideAttendanceSheet&&!isWideEisaSheet){
-    return{programmes:[],learners:[],attendance:[],eisa:[],units:[]};
+    return{programmes:[],learners:[],attendance:[],eisa:[],units:[],moduleDates:[]};
   }
 
   // ── Forward-fill state for merged/blank-on-repeat cells (common Excel export pattern:
@@ -9465,12 +9467,30 @@ function scanSheet(sheetName,rows){
     // riding along a learner/programme row) ──
     if(hasUsId){
       const usId=p(['us id','unit standard id','unit std id','standard id']);
+      const usModNum =numFromCell(p(['module number','module','module no']))||'1';
+      const pkey=`${clientName}||${saqaId||progName}`;
+
+      // Module date range (timetable-style sheet): this row's Start/End Date columns
+  // describe THAT MODULE's schedule here, not the whole programme's (handled
+        // separately above as module_1_dates) - only fires on non-learner rows so a
+  // mixed roster+module sheet doesn't misread a learner's enrolment dates as a
+                        // module date range. Multiple rows for the same module merge to the earliest
+  // start / latest end seen.
+  if(!isLearnerSheet&&(fmtStart||fmtEnd)){
+  const modKey=`${pkey}||${usModNum}`;
+    const sIso=parseImportDateISO(startDate),eIso=parseImportDateISO(endDate);
+    const cur=moduleDatesMap[modKey];
+  if(!cur){
+    moduleDatesMap[modKey]={_sheet:sheetName,_pkey:pkey,mod:+usModNum||1,startIso:sIso,endIso:eIso,start:fmtStart,end:fmtEnd};
+  }else{
+    if(sIso&&(!cur.startIso||sIso<cur.startIso)){cur.startIso=sIso;cur.start=fmtStart;}
+    if(eIso&&(!cur.endIso||eIso>cur.endIso)){cur.endIso=eIso;cur.end=fmtEnd;}
+  }
+  }
       if(usId){
         const usTitle =p(['us title','unit standard title','standard title']);
         const usLevel =numFromCell(p(['us level','unit standard level','standard level']));
         const usCredits=numFromCell(p(['us credits','unit standard credits','standard credits']));
-        const usModNum =numFromCell(p(['module number','module','module no']))||'1';
-        const pkey=`${clientName}||${saqaId||progName}`;
         const unitKey=`${pkey}||${usId}`;
         if(!unitSeen.has(unitKey)){
           unitSeen.add(unitKey);
@@ -9486,7 +9506,7 @@ function scanSheet(sheetName,rows){
     }
   });
 
-  return{programmes,learners,attendance,eisa,units,facilitatorFallback:sheetFacilitatorFallback,assessorFallback:sheetAssessorFallback,clientFallback:sheetClientFallback,qualificationFallback:sheetQualificationFallback,saqaFallback:sheetSaqaFallback};
+  return{programmes,learners,attendance,eisa,units,moduleDates:Object.values(moduleDatesMap),facilitatorFallback:sheetFacilitatorFallback,assessorFallback:sheetAssessorFallback,clientFallback:sheetClientFallback,qualificationFallback:sheetQualificationFallback,saqaFallback:sheetSaqaFallback};
 }
 
 // ── Safe sheet reader — guards against corrupted/inflated used-ranges ──
@@ -9540,7 +9560,7 @@ function previewImport(input){
       }else{
         wb=XLSX.read(e.target.result,{type:'array'});
       }
-      const allProgs=[],allLearners=[],allAttendance=[],allEisa=[],allUnits=[];
+      const allProgs=[],allLearners=[],allAttendance=[],allEisa=[],allUnits=[],allModuleDates=[];
       const sheetLog=[];
       const sheetWarnings=[];
       let wbFacilitatorFallback='',wbAssessorFallback='',wbClientFallback='',wbQualificationFallback='',wbSaqaFallback='';
@@ -9549,7 +9569,7 @@ function previewImport(input){
       wb.SheetNames.forEach(name=>{
         const ws=wb.Sheets[name];
         const rows=safeSheetRows(ws,name,sheetWarnings);
-        const{programmes,learners,attendance,eisa,units,facilitatorFallback,assessorFallback,clientFallback,qualificationFallback,saqaFallback}=scanSheet(name,rows);
+        const{programmes,learners,attendance,eisa,units,moduleDates,facilitatorFallback,assessorFallback,clientFallback,qualificationFallback,saqaFallback}=scanSheet(name,rows);
         if(!wbFacilitatorFallback&&facilitatorFallback)wbFacilitatorFallback=facilitatorFallback;
         if(!wbAssessorFallback&&assessorFallback)wbAssessorFallback=assessorFallback;
         if(!wbClientFallback&&clientFallback)wbClientFallback=clientFallback;
@@ -9560,6 +9580,7 @@ function previewImport(input){
         allAttendance.push(...attendance);
         allEisa.push(...eisa);
         allUnits.push(...(units||[]));
+        allModuleDates.push(...(moduleDates||[]));
         if(programmes.length||learners.length||attendance.length||eisa.length){
           const parts=[`${programmes.length} programme row${programmes.length!==1?'s':''}`,`${learners.length} learner${learners.length!==1?'s':''}`];
           if(attendance.length)parts.push(`${attendance.length} attendance row${attendance.length!==1?'s':''}`);
@@ -9788,7 +9809,22 @@ function previewImport(input){
       });
       const linkedUnits=Object.values(unitMap);
 
-      importData={progMap,learnerMap:learnerMap,learnerRows:linkedLearners,attendanceRows:linkedAttendance,eisaRows:linkedEisa,unitsRows:linkedUnits};
+  // Module date ranges are also already tagged with a _pkey - dedupe/merge
+      // across sheets the same way scanSheet merges them within one sheet
+  // (earliest start, latest end wins for a given programme+module).
+  const moduleDateMap={};
+  allModuleDates.forEach(m=>{
+  const key=`${m._pkey}||${m.mod}`;
+  const cur=moduleDateMap[key];
+  if(!cur){moduleDateMap[key]={...m};}
+  else{
+                                                             if(m.startIso&&(!cur.startIso||m.startIso<cur.startIso)){cur.startIso=m.startIso;cur.start=m.start;}
+                  if(m.endIso&&(!cur.endIso||m.endIso>cur.endIso)){cur.endIso=m.endIso;cur.end=m.end;}
+  }
+  });
+  const linkedModuleDates=Object.values(moduleDateMap);
+
+      importData={progMap,learnerMap:learnerMap,learnerRows:linkedLearners,attendanceRows:linkedAttendance,eisaRows:linkedEisa,unitsRows:linkedUnits,moduleDatesRows:linkedModuleDates};
 
       // Per-programme learner counts
       const progLearnerCounts={};
@@ -9806,6 +9842,7 @@ function previewImport(input){
       const na=linkedAttendance.length;
       const ne=linkedEisa.length;
       const nu=linkedUnits.length;
+      const nmd=linkedModuleDates.length;
 
       // Show what fields were found vs blank
       // Build richer found/missing summary across all programmes
@@ -9829,6 +9866,7 @@ function previewImport(input){
         na>0&&'Attendance',
         ne>0&&'EISA results',
         nu>0&&'Unit standards',
+        nmd>0&&'Module dates',
       ].filter(Boolean);
       const missingFields=[
         !anyFound('client_name')&&'Client name',
@@ -9848,6 +9886,7 @@ function previewImport(input){
           ${na?`<div>🗓️ <strong style="color:#fff">${na}</strong> attendance row${na!==1?'s':''}</div>`:''}
           ${ne?`<div>📝 <strong style="color:#fff">${ne}</strong> EISA row${ne!==1?'s':''}</div>`:''}
           ${nu?`<div>📚 <strong style="color:#fff">${nu}</strong> unit standard${nu!==1?'s':''}</div>`:''}
+          ${nmd?`<div>🗓️ <strong style="color:#fff">${nmd}</strong> module date range${nmd!==1?'s':''}</div>`:''}
           ${naFac?`<div>🎓 <strong style="color:#fff">${naFac}</strong> facilitator name${naFac!==1?'s':''} → added to Assessors</div>`:''}
           ${naAss?`<div>✅ <strong style="color:#fff">${naAss}</strong> assessor name${naAss!==1?'s':''} → added to Assessors</div>`:''}
           ${foundFields.length?`<div style="margin-top:8px;color:#6ee7b7">✓ Will populate: ${foundFields.join(', ')}</div>`:''}
@@ -9935,6 +9974,20 @@ async function confirmImport(){
     }
 
     // ── 3. Programmes ──
+    // Module date ranges pulled from a timetable-style sheet (moduleDatesRows,
+  // built in previewImport) - only covers module_1..4_dates since those are
+  // the only module_N_dates columns the base schema guarantees; a programme
+  // using module 5+ (added manually via "+ Add Module") keeps working the
+  // same way it always did, just not auto-filled by this import.
+  const{moduleDatesRows=[]}=importData;
+  const modDatesPayloadFor=(pkey)=>{
+  const out={};
+  moduleDatesRows.filter(m=>m._pkey===pkey&&m.mod>=1&&m.mod<=4).forEach(m=>{
+  const range=m.start&&m.end?`${m.start} – ${m.end}`:(m.start||m.end||'');
+  if(range)out[`module_${m.mod}_dates`]=range;
+  });
+  return out;
+  };
     for(const pkey of Object.keys(progMap)){
       const pd=progMap[pkey];
       const cid=clientNameToId[pd.client_name];
@@ -9943,6 +9996,7 @@ async function confirmImport(){
         (pd.saqa_id&&p.saqa_id===pd.saqa_id&&p.client_id===cid)||
         (pd.programme_name&&p.programme_name===pd.programme_name&&p.client_id===cid)
       );
+      const modDates=modDatesPayloadFor(pkey);
       if(!existing){
         const fac=assessors.find(a=>a.full_name===pd.facilitator_name);
         const payload={
@@ -9953,9 +10007,11 @@ async function confirmImport(){
           qualification_code:pd.qualification_code||null,
           group_name:pd.group_name||null,
           group_size:pd.group_size||null,
-          module_1_dates:pd.module_1_dates||null,
-          module_2_dates:null,module_3_dates:null,module_4_dates:null,
-          facilitator_id:fac?fac.id:null,
+module_1_dates:pd.module_1_dates||modDates.module_1_dates||null,
+  module_2_dates:modDates.module_2_dates||null,
+  module_3_dates:modDates.module_3_dates||null,
+  module_4_dates:modDates.module_4_dates||null,
+    facilitator_id:fac?fac.id:null,
         };
         existing=syncDB
           ?await sbPost('programmes',payload)
@@ -9969,7 +10025,11 @@ async function confirmImport(){
         if(!existing.qualification_code&&pd.qualification_code)fill.qualification_code=pd.qualification_code;
         if(!existing.group_name&&pd.group_name)fill.group_name=pd.group_name;
         if(!existing.group_size&&pd.group_size)fill.group_size=pd.group_size;
-        if(!existing.module_1_dates&&pd.module_1_dates)fill.module_1_dates=pd.module_1_dates;
+        if(!existing.module_1_dates&&(pd.module_1_dates||modDates.module_1_dates))fill.module_1_dates=pd.module_1_dates||modDates.module_1_dates;
+        [2,3,4].forEach(n=>{
+  const key=`module_${n}_dates`;
+  if(!existing[key]&&modDates[key])fill[key]=modDates[key];
+     });
         if(!existing.facilitator_id&&fac)fill.facilitator_id=fac.id;
         if(Object.keys(fill).length){
           if(syncDB){try{await sbPatch('programmes',existing.id,fill);}catch(e){console.warn('Programme fill failed:',e.message);}}
