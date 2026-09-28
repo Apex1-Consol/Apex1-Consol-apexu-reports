@@ -39,8 +39,16 @@
       return Promise.all(regs.filter(function (r) { return r.scope.indexOf('/Apex1-Consol-apexu-reports/') !== -1; })
         .map(function (r) { return r.unregister(); }));
     }).then(function () {
+      // Drop only this portal's cached pages; the cache name is shared with ApexOne.
       return window.caches ? caches.keys().then(function (keys) {
-        return Promise.all(keys.filter(function (k) { return k.indexOf('apex-report-') === 0; }).map(function (k) { return caches.delete(k); }));
+        return Promise.all(keys.map(function (k) {
+          return caches.open(k).then(function (c) {
+            return c.keys().then(function (reqs) {
+              return Promise.all(reqs.filter(function (r) { return new URL(r.url).pathname.indexOf('/Apex1-Consol-apexu-reports/') === 0; })
+                .map(function (r) { return c.delete(r); }));
+            });
+          });
+        }));
       }) : null;
     }).then(go, go);
   } else { go(); }
